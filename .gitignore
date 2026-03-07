@@ -1,0 +1,9 @@
+# Ignore build outputs
+result
+result-*
+
+# Ignore automatically generated direnv output
+.direnv
+
+# Ignore generated seed ISOs
+*.iso
