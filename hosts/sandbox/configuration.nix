@@ -105,7 +105,7 @@
   };
 
   environment.systemPackages = with pkgs; [
-    inputs.claude-code-overlay.packages.${pkgs.stdenv.hostPlatform.system}.default
+    claude-code
 
     # tools
     tmux

@@ -9,7 +9,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    claude-code-overlay.url = "github:ryoppippi/claude-code-overlay";
+    nixpkgs-master = {
+      url = "github:nixos/nixpkgs/master";
+      flake = false;
+    };
   };
 
   outputs =
@@ -35,6 +38,19 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           modules = [
+            {
+              nixpkgs.overlays = [
+                (_: prev: {
+                  inherit
+                    (import inputs.nixpkgs-master {
+                      inherit (prev.stdenv.hostPlatform) system;
+                      inherit (prev) config;
+                    })
+                    claude-code
+                    ;
+                })
+              ];
+            }
             ./nix.nix
             ./hosts/sandbox/configuration.nix
             ./modules/nixos/vm-guest.nix

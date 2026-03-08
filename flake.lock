@@ -1,23 +1,5 @@
 {
   "nodes": {
-    "claude-code-overlay": {
-      "inputs": {
-        "nixpkgs": "nixpkgs"
-      },
-      "locked": {
-        "lastModified": 1772841847,
-        "narHash": "sha256-Qre73BGBcw1YlhBTTT+T/rVoqVtlCgHYYExUreIJoYs=",
-        "owner": "ryoppippi",
-        "repo": "claude-code-overlay",
-        "rev": "871c9fa0d37c0d6b3bdbf30341a8d08a75b1793b",
-        "type": "github"
-      },
-      "original": {
-        "owner": "ryoppippi",
-        "repo": "claude-code-overlay",
-        "type": "github"
-      }
-    },
     "home-manager": {
       "inputs": {
         "nixpkgs": [
@@ -40,22 +22,6 @@
     },
     "nixpkgs": {
       "locked": {
-        "lastModified": 1768127708,
-        "narHash": "sha256-1Sm77VfZh3mU0F5OqKABNLWxOuDeHIlcFjsXeeiPazs=",
-        "owner": "NixOS",
-        "repo": "nixpkgs",
-        "rev": "ffbc9f8cbaacfb331b6017d5a5abb21a492c9a38",
-        "type": "github"
-      },
-      "original": {
-        "owner": "NixOS",
-        "ref": "nixos-unstable",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
-    "nixpkgs_2": {
-      "locked": {
         "lastModified": 1772773019,
         "narHash": "sha256-E1bxHxNKfDoQUuvriG71+f+s/NT0qWkImXsYZNFFfCs=",
         "owner": "NixOS",
@@ -70,11 +36,28 @@
         "type": "github"
       }
     },
+    "nixpkgs-master": {
+      "flake": false,
+      "locked": {
+        "lastModified": 1772997580,
+        "narHash": "sha256-NG7ashpe2q0OstHoeGiIxV0isAjV85+G0o3KrRTMF80=",
+        "owner": "nixos",
+        "repo": "nixpkgs",
+        "rev": "fcc709bc9ee393eb7e7f1e0c241d025be1927bd2",
+        "type": "github"
+      },
+      "original": {
+        "owner": "nixos",
+        "ref": "master",
+        "repo": "nixpkgs",
+        "type": "github"
+      }
+    },
     "root": {
       "inputs": {
-        "claude-code-overlay": "claude-code-overlay",
         "home-manager": "home-manager",
-        "nixpkgs": "nixpkgs_2"
+        "nixpkgs": "nixpkgs",
+        "nixpkgs-master": "nixpkgs-master"
       }
     }
   },
