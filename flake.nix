@@ -29,6 +29,9 @@
 
       mkSandbox =
         system:
+        {
+          gui ? false,
+        }:
         nixpkgs.lib.nixosSystem {
           inherit system;
           modules = [
@@ -38,6 +41,7 @@
             ./modules/nixos/vm-9p-automount.nix
             ./modules/nixos/seed-ssh.nix
             ./modules/nixos/localisation.nix
+            ./modules/nixos/desktop.nix
 
             inputs.home-manager.nixosModules.home-manager
             {
@@ -46,15 +50,30 @@
               home-manager.backupFileExtension = "backup";
               home-manager.users.sandbox = import ./users/sandbox/home-manager.nix;
             }
+          ]
+          ++ nixpkgs.lib.optionals gui [
+            {
+              vm-guest.headless = nixpkgs.lib.mkForce false;
+              desktop = {
+                enable = true;
+                autoLogin = "sandbox";
+              };
+              seed-ssh.enable = nixpkgs.lib.mkForce false;
+            }
           ];
-          specialArgs = { inherit inputs; };
+          specialArgs = {
+            inherit inputs;
+            inherit gui;
+          };
         };
     in
 
     {
       nixosConfigurations = {
-        sandbox = mkSandbox "x86_64-linux";
-        sandbox-aarch64 = mkSandbox "aarch64-linux";
+        sandbox = mkSandbox "x86_64-linux" { };
+        sandbox-aarch64 = mkSandbox "aarch64-linux" { };
+        sandbox-gui = mkSandbox "x86_64-linux" { gui = true; };
+        sandbox-gui-aarch64 = mkSandbox "aarch64-linux" { gui = true; };
       };
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);

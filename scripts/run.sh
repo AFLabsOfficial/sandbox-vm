@@ -14,6 +14,7 @@ SSH_KEYS=()
 SEED_ISO=""
 IMAGE=""
 GUEST_ARCH=""
+GUI=false
 
 usage() {
   cat <<EOF
@@ -21,6 +22,7 @@ Usage: run.sh <image.qcow2> [options]
 
 Options:
   --arch <arch>          Guest architecture (auto-detected from image name)
+  --gui                  Launch with graphical display (default: headless)
   --ssh-key <key.pub>    SSH public key (repeatable, auto-generates seed ISO)
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
@@ -41,6 +43,7 @@ shift
 while [ $# -gt 0 ]; do
   case "$1" in
     --arch)       GUEST_ARCH="$2"; shift 2 ;;
+    --gui)        GUI=true; shift ;;
     --ssh-key)    SSH_KEYS+=("$2"); shift 2 ;;
     --seed-iso)   SEED_ISO="$2"; shift 2 ;;
     --mount)       MOUNTS+=("$2"); shift 2 ;;
@@ -117,8 +120,18 @@ QEMU_ARGS=(
   -smp "$CPUS"
   -drive "file=$IMAGE,format=qcow2,snapshot=on"
   -nic "user,hostfwd=tcp::${SSH_PORT}-:22"
-  -nographic
 )
+
+# display mode
+if [ "$GUI" = "true" ]; then
+  if [ "$GUEST_ARCH" = "aarch64" ]; then
+    QEMU_ARGS+=(-device virtio-gpu-pci -device usb-ehci -device usb-kbd -device usb-mouse)
+  else
+    QEMU_ARGS+=(-device virtio-vga)
+  fi
+else
+  QEMU_ARGS+=(-nographic)
+fi
 
 # x86_64 with hardware accel — pass through host CPU features (AVX, etc.)
 if [ "$GUEST_ARCH" = "x86_64" ] && [ "$ACCEL" != "tcg" ]; then
@@ -178,7 +191,7 @@ if [ -n "$CLAUDE_JSON" ]; then
 fi
 
 echo "---"
-echo "Guest: $GUEST_ARCH | Accel: $ACCEL"
+echo "Guest: $GUEST_ARCH | Accel: $ACCEL | Display: $([ "$GUI" = "true" ] && echo "gui" || echo "headless")"
 echo "SSH: ssh -p $SSH_PORT sandbox@localhost"
 echo "---"
 
