@@ -91,6 +91,13 @@
     };
   };
 
+  # no hardware firmware needed in a VM
+  hardware.enableRedistributableFirmware = lib.mkForce false;
+  hardware.wirelessRegulatoryDatabase = lib.mkForce false;
+
+  documentation.enable = false;
+  environment.defaultPackages = [ ];
+
   virtualisation.docker = {
     enable = true;
     logDriver = "json-file";
@@ -126,7 +133,9 @@
             import (modulesPath + "/../lib/make-disk-image.nix") {
               inherit lib config pkgs;
               inherit (config.virtualisation) diskSize;
-              inherit (config.image) baseName format;
+              inherit (config.image) baseName;
+              format = "qcow2-compressed";
+              copyChannel = false;
               partitionTableType = if config.image.efiSupport then "efi" else "legacy";
               memSize = 16384;
             }
