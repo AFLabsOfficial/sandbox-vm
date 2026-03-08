@@ -1,19 +1,24 @@
-# sandbox-vm.nix
+# Sandbox VM
 
-Ephemeral NixOS virtual machine for AI-assisted development. Boots a disposable
-VM with Claude Code pre-installed, mounts your projects and claude config from
-the host, and tears down cleanly on exit. The disk runs in snapshot mode — all
-changes are discarded on shutdown, so every boot starts from a clean state.
+A disposable virtual machine with Claude Code pre-installed. Download an image,
+run one command, and start coding with AI — no setup, no mess, no risk to your
+host machine. Everything resets on shutdown.
 
-- Mount host project directories into the VM (supports multiple mounts)
-- Mount `.claude` config for automatic Claude Code authentication
-- `claude-code`, `git` and `docker` available out of the box
-- NixOS-based — install any additional tool with `nix profile add`
-- Supports x86_64 and aarch64 guests on Linux (KVM) and macOS (HVF)
+**Choose your style:**
+
+| | Headless | GUI |
+|---|---|---|
+| **Access** | SSH into the VM | Full Budgie desktop in a window |
+| **Best for** | Terminal-comfortable developers | Visual workflows, less CLI experience |
+| **Login** | SSH key authentication | Auto-login, no passwords |
+
+**What's included:** Claude Code, git, docker, tmux, ripgrep, and more.
+Mount your projects from the host, authenticate once, and you're ready to go.
+Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
 ## Prerequisites
 
-Install QEMU and ISO tools on your host machine:
+Install QEMU on your host machine:
 
 **macOS**
 ```sh
@@ -28,31 +33,39 @@ sudo apt install cdrecord mkisofs cdda2wav
 sudo apt install qemu-system-x86 qemu-kvm -y
 ```
 
-**NixOS / nix**
-```sh
-nix develop   # provides qemu and cdrtools
-```
-
-## Quick start
+## Quick start (GUI)
 
 ### 1. Get the image
 
-Download a pre-built qcow2 from
-[dl.aflabs.org/iso](https://dl.aflabs.org/iso/), or build locally with nix:
+Download `sandbox-gui-x86_64.qcow2` from
+[dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
+
+### 2. Run
 
 ```sh
-just build x86_64    # or aarch64
+just run-gui ./sandbox-gui-x86_64.qcow2 \
+  --mount ~/projects/my-app \
+  --claude ~/.claude \
+  --claude-json ~/.claude.json
 ```
 
-### 2. Generate an SSH key (if needed)
+A QEMU window opens and logs you straight into the desktop. Your projects
+appear under `~/mnt/` and Claude Code is ready to use from the terminal.
 
-The VM uses SSH key authentication. If you don't have a key:
+## Quick start (headless)
+
+### 1. Get the image
+
+Download `sandbox-x86_64.qcow2` from
+[dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
+
+### 2. Generate an SSH key (if needed)
 
 ```sh
 ssh-keygen -t ed25519
 ```
 
-### 3. Run the VM
+### 3. Run
 
 ```sh
 just run ./sandbox-x86_64.qcow2 \
@@ -66,20 +79,14 @@ just run ./sandbox-x86_64.qcow2 \
 
 ```sh
 just ssh
-# or with a custom port
-just ssh 2223
 ```
 
-Under the hood this runs
-`ssh -p 2222 -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null sandbox@localhost`.
-The flags are needed because the VM generates a new host key on every boot —
-without them SSH would report a key conflict in `~/.ssh/known_hosts`.
-
-## Run script options
+## Run options
 
 ```
 Usage: run.sh <image.qcow2> [options]
 
+  --gui                  Launch with graphical display (default: headless)
   --ssh-key <key.pub>    SSH public key (repeatable)
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
@@ -96,9 +103,7 @@ Usage: run.sh <image.qcow2> [options]
 Each `--mount` shares a host directory into the VM at `~/mnt/<dirname>`:
 
 ```sh
-# mount multiple projects
-just run ./sandbox.qcow2 \
-  --ssh-key ~/.ssh/id_ed25519.pub \
+just run-gui ./sandbox-gui-x86_64.qcow2 \
   --mount ~/projects/frontend \
   --mount ~/projects/backend
 ```
@@ -115,29 +120,38 @@ Pass `--claude ~/.claude` to mount your claude config writable into the VM.
 Pass `--claude-json ~/.claude.json` to inject your auth config.
 Claude Code is pre-installed and will pick up your auth automatically.
 
-## Nix package manager
+## Installing additional tools
 
-The VM runs NixOS. You don't need to know nix to use it, but it helps for
-installing additional tools.
-
-### Install packages
+Need a language runtime or tool that isn't pre-installed? Install it inside
+the VM:
 
 ```sh
 nix profile add nixpkgs#nodejs nixpkgs#pnpm
 ```
 
-Packages installed with `nix profile` persist across SSH sessions and
-tmux windows. Use `nix search nixpkgs <name>` to find packages.
+Packages persist across terminal sessions until the VM shuts down.
+Use `nix search nixpkgs <name>` to find packages.
 
 ### Common language stacks
 
-| Stack   | Packages                                         |
-|---------|--------------------------------------------------|
-| Node.js | `nodejs`, `pnpm`, `yarn`                         |
-| Python  | `python3`, `uv`                                  |
-| Go      | `go`, `gopls`                                    |
-| Rust    | `cargo`, `rustc`, `rustfmt`, `clippy`            |
-| Java    | `jdk`, `gradle`, `maven`                         |
+| Stack   | Install command                                            |
+|---------|------------------------------------------------------------|
+| Node.js | `nix profile add nixpkgs#nodejs nixpkgs#pnpm`             |
+| Python  | `nix profile add nixpkgs#python3 nixpkgs#uv`              |
+| Go      | `nix profile add nixpkgs#go nixpkgs#gopls`                |
+| Rust    | `nix profile add nixpkgs#cargo nixpkgs#rustc`             |
+| Java    | `nix profile add nixpkgs#jdk nixpkgs#gradle`              |
+
+## Building from source
+
+If you have nix installed, you can build images locally instead of downloading:
+
+```sh
+just build x86_64        # headless
+just build-gui x86_64    # GUI
+```
+
+Both support `x86_64` and `aarch64` architectures.
 
 ## Contributing
 
