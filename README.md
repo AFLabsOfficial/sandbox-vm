@@ -33,11 +33,21 @@ sudo apt install cdrecord mkisofs cdda2wav
 sudo apt install qemu-system-x86 qemu-kvm -y
 ```
 
+## Which image?
+
+Pick the image matching your host CPU:
+
+- **x86_64** — Intel/AMD Linux machines
+- **aarch64** — Apple Silicon Macs, ARM Linux machines
+
+Apple Silicon Macs run the aarch64 image natively with hardware acceleration.
+The x86_64 image works too but runs under emulation (much slower).
+
 ## Quick start (GUI)
 
 ### 1. Get the image
 
-Download `sandbox-gui-x86_64.qcow2` from
+Download `sandbox-gui-x86_64.qcow2` (or `aarch64` on Apple Silicon) from
 [dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
 
 ### 2. Run
@@ -56,7 +66,7 @@ appear under `~/mnt/` and Claude Code is ready to use from the terminal.
 
 ### 1. Get the image
 
-Download `sandbox-headless-x86_64.qcow2` from
+Download `sandbox-headless-x86_64.qcow2` (or `aarch64` on Apple Silicon) from
 [dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
 
 ### 2. Generate an SSH key (if needed)
