@@ -46,7 +46,7 @@
     };
 
     networking = {
-      useDHCP = true;
+      useDHCP = lib.mkDefault true;
       firewall.allowedTCPPorts = [ 22 ];
     };
 
