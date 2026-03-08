@@ -119,13 +119,13 @@
   # image builder VM needs more than the default 1G to copy closure
   image.modules =
     let
-      # sandbox[-gui]-<nixos date.hash>-<arch> (e.g. sandbox-20260225.1267bb4-x86_64)
+      # sandbox-{headless,gui}-<nixos date.hash>-<arch> (e.g. sandbox-headless-20260225.1267bb4-x86_64)
       arch = pkgs.stdenv.hostPlatform.parsed.cpu.name;
       parts = lib.splitString "." config.system.nixos.version;
       date = builtins.elemAt parts 2;
       hash = builtins.elemAt parts 3;
-      variant = if gui then "-gui" else "";
-      name = "sandbox${variant}-${date}.${hash}-${arch}";
+      variant = if gui then "gui" else "headless";
+      name = "sandbox-${variant}-${date}.${hash}-${arch}";
 
       imageMemOverride =
         { config, modulesPath, ... }:

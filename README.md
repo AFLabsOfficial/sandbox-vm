@@ -56,7 +56,7 @@ appear under `~/mnt/` and Claude Code is ready to use from the terminal.
 
 ### 1. Get the image
 
-Download `sandbox-x86_64.qcow2` from
+Download `sandbox-headless-x86_64.qcow2` from
 [dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
 
 ### 2. Generate an SSH key (if needed)
@@ -68,7 +68,7 @@ ssh-keygen -t ed25519
 ### 3. Run
 
 ```sh
-just run ./sandbox-x86_64.qcow2 \
+just run-headless ./sandbox-headless-x86_64.qcow2 \
   --ssh-key ~/.ssh/id_ed25519.pub \
   --mount ~/projects/my-app \
   --claude ~/.claude \
@@ -147,8 +147,8 @@ Use `nix search nixpkgs <name>` to find packages.
 If you have nix installed, you can build images locally instead of downloading:
 
 ```sh
-just build x86_64        # headless
-just build-gui x86_64    # GUI
+just build-headless x86_64
+just build-gui x86_64
 ```
 
 Both support `x86_64` and `aarch64` architectures.

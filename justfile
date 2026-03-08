@@ -2,8 +2,8 @@
 default:
     @just --list
 
-# build sandbox VM image (requires nix)
-build arch:
+# build sandbox headless VM image (requires nix)
+build-headless arch:
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{arch}}" = "x86_64" ]; then
@@ -13,7 +13,7 @@ build arch:
     else
       echo "error: arch must be x86_64 or aarch64"; exit 1
     fi
-    ln -sfn "$(readlink result)" "result-sandbox-{{arch}}"
+    ln -sfn "$(readlink result)" "result-sandbox-headless-{{arch}}"
 
 # build sandbox GUI VM image (requires nix)
 build-gui arch:
@@ -28,8 +28,8 @@ build-gui arch:
     fi
     ln -sfn "$(readlink result)" "result-sandbox-gui-{{arch}}"
 
-# run sandbox VM (headless)
-run image *ARGS:
+# run sandbox headless VM
+run-headless image *ARGS:
     bash scripts/run.sh {{image}} {{ARGS}}
 
 # run sandbox GUI VM
