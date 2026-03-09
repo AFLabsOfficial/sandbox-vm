@@ -43,7 +43,7 @@
     bindfs = true;
   };
 
-  # writable claude config via 9p with bindfs for macOS UID compat
+  # writable claude config via 9p with bindfs for cross-platform UID compat
   systemd.services.claude-9p-mount = {
     description = "Mount claude config via 9p with bindfs";
     after = [
@@ -69,7 +69,6 @@
         ${pkgs.bindfs}/bin/bindfs \
           --force-user=sandbox --force-group=users \
           /mnt/9p/claude /home/sandbox/.claude
-        chown sandbox:users /home/sandbox/.claude
       '';
     };
   };
