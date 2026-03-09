@@ -38,6 +38,7 @@
         nixpkgs.lib.nixosSystem {
           inherit system;
           modules = [
+            { nixpkgs.config.allowUnfree = true; }
             {
               nixpkgs.overlays = [
                 (_: prev: {
