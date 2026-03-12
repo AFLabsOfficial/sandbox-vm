@@ -73,20 +73,34 @@
     };
   };
 
-  # .claude.json passed via qemu fw_cfg
-  boot.kernelModules = [ "qemu_fw_cfg" ];
+  # writable .claude.json via 9p with bindfs for cross-platform UID compat
   systemd.services.claude-json = {
-    after = [ "systemd-modules-load.service" ];
+    description = "Mount .claude.json via 9p with bindfs";
+    after = [
+      "local-fs.target"
+      "systemd-modules-load.service"
+    ];
     wants = [ "systemd-modules-load.service" ];
     wantedBy = [ "multi-user.target" ];
     serviceConfig = {
       Type = "oneshot";
       RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "claude-json" ''
-        src="/sys/firmware/qemu_fw_cfg/by_name/opt/claude.json/raw"
-        [ -f "$src" ] || exit 0
-        cp "$src" /home/sandbox/.claude.json
-        chown sandbox:users /home/sandbox/.claude.json
+      ExecStart = pkgs.writeShellScript "claude-json-mount" ''
+        tag=$(find /sys/devices -name mount_tag 2>/dev/null | while read -r f; do
+          t=$(tr -d '\0' < "$f")
+          [ "$t" = "claude_json" ] && echo "$t" && break
+        done)
+
+        [ -z "$tag" ] && exit 0
+
+        mkdir -p /mnt/9p/claude_json /mnt/bindfs/claude_json
+        ${pkgs.util-linux}/bin/mount -t 9p claude_json /mnt/9p/claude_json \
+          -o trans=virtio,version=9p2000.L || exit 0
+        ${pkgs.bindfs}/bin/bindfs \
+          --force-user=sandbox --force-group=users \
+          /mnt/9p/claude_json /mnt/bindfs/claude_json
+        ln -sf /mnt/bindfs/claude_json/.claude.json /home/sandbox/.claude.json
+        chown -h sandbox:users /home/sandbox/.claude.json
       '';
     };
   };

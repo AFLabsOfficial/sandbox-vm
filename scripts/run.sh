@@ -27,7 +27,7 @@ Options:
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
   --claude <path>        Mount claude config dir writable into VM
-  --claude-json <path>   Copy claude.json into mounted claude dir
+  --claude-json <path>   Mount .claude.json writable into VM
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
   --ssh-port <port>      SSH port forward (default: 2222)
@@ -109,6 +109,7 @@ fi
 
 cleanup() {
   [ -n "$CLEANUP_SEED" ] && rm -rf "$(dirname "$CLEANUP_SEED")"
+  [ -n "${CLAUDE_JSON_TMPDIR:-}" ] && rm -rf "$CLAUDE_JSON_TMPDIR"
 }
 trap cleanup EXIT
 
@@ -184,10 +185,17 @@ if [ -n "$CLAUDE_DIR" ]; then
   QEMU_ARGS+=(
     -virtfs "local,path=$CLAUDE_DIR,mount_tag=claude,security_model=none,id=fs${FS_ID}"
   )
+  FS_ID=$((FS_ID + 1))
 fi
 
 if [ -n "$CLAUDE_JSON" ]; then
-  QEMU_ARGS+=(-fw_cfg "name=opt/claude.json,file=$CLAUDE_JSON")
+  CLAUDE_JSON=$(realpath "$CLAUDE_JSON")
+  CLAUDE_JSON_TMPDIR=$(mktemp -d -p "$(dirname "$CLAUDE_JSON")")
+  ln "$CLAUDE_JSON" "$CLAUDE_JSON_TMPDIR/.claude.json"
+  QEMU_ARGS+=(
+    -virtfs "local,path=$CLAUDE_JSON_TMPDIR,mount_tag=claude_json,security_model=none,id=fs${FS_ID}"
+  )
+  FS_ID=$((FS_ID + 1))
 fi
 
 echo "---"

@@ -101,7 +101,7 @@ Usage: run.sh <image.qcow2> [options]
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
   --claude <path>        Mount claude config dir writable into VM
-  --claude-json <path>   Pass .claude.json config into VM
+  --claude-json <path>   Mount .claude.json writable into VM
   --arch <arch>          Guest architecture (default: host arch)
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
@@ -127,7 +127,7 @@ Inside the VM:
 ### Claude Code
 
 Pass `--claude ~/.claude` to mount your claude config writable into the VM.
-Pass `--claude-json ~/.claude.json` to inject your auth config.
+Pass `--claude-json ~/.claude.json` to mount your auth config writable into the VM.
 Claude Code is pre-installed and will pick up your auth automatically.
 
 ## Installing additional tools
