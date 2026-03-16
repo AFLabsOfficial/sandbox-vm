@@ -22,6 +22,8 @@
     }:
 
     let
+      version = "v0.1.0";
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -81,7 +83,7 @@
           specialArgs = {
             inherit inputs;
             inherit gui;
-            repoRev = inputs.self.shortRev or inputs.self.dirtyShortRev or "unknown";
+            inherit version;
           };
         };
 

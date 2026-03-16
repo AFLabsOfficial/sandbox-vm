@@ -5,8 +5,9 @@ set -euo pipefail
 #
 # layout:
 #   ~/http/iso/
-#   ├── sandbox-headless-x86_64-e3b6344-20260306.abc1234.qcow2
-#   ├── sandbox-headless-x86_64-e3b6344-20260306.abc1234.sha256
+#   ├── sandbox-headless-x86_64-v0.1.0-20260306.abc1234.qcow2
+#   ├── sandbox-headless-x86_64-v0.1.0-20260306.abc1234.sha256
+#   ├── sandbox-headless-x86_64-v0.1.0-20260306.abc1234.sha256.asc
 #   └── ...
 
 INC_DIR="${HOME}/inc"
@@ -21,6 +22,8 @@ for img in "$INC_DIR"/sandbox-headless-*.qcow2 "$INC_DIR"/sandbox-gui-*.qcow2; d
   mv "$img" "$ISO_DIR/"
   hash="${img%.qcow2}.sha256"
   [ -f "$hash" ] && mv "$hash" "$ISO_DIR/"
+  sig="${hash}.asc"
+  [ -f "$sig" ] && mv "$sig" "$ISO_DIR/"
   moved=$((moved + 1))
 done
 

@@ -18,7 +18,7 @@ Arguments:
 
 Options:
   --arch <arch>        x86_64 or aarch64 (default: auto-detect host)
-  --version <ver>      Specific version e.g. "fe3265e" (default: latest)
+  --version <ver>      Specific version e.g. "v0.1.0" (default: latest)
   --list               List available versions for variant+arch
   --cache-dir <path>   Override cache directory
   --force              Force re-download even if cached
@@ -78,7 +78,7 @@ if ! command -v curl &>/dev/null; then
   exit 1
 fi
 
-IMAGE_RE="sandbox-${VARIANT}-${ARCH}-[0-9a-f]+(-dirty)?-[0-9]{8}\.[0-9a-f]+\.qcow2"
+IMAGE_RE="sandbox-${VARIANT}-${ARCH}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
 
 # list mode: fetch directory listing and extract matching filenames
 if [ "$LIST" = true ]; then
@@ -129,7 +129,7 @@ if [ -n "$VERSION" ]; then
 else
   FILENAME=$(echo "$listing" \
     | grep -oE "$IMAGE_RE" \
-    | sort -u | tail -1)
+    | sort -V | tail -1)
   if [ -z "$FILENAME" ]; then
     echo "error: no image found for ${VARIANT}/${ARCH}" >&2
     exit 1

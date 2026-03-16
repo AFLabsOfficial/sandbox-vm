@@ -4,7 +4,7 @@
   inputs,
   config,
   gui ? false,
-  repoRev ? "unknown",
+  version ? "unknown",
   ...
 }:
 {
@@ -106,14 +106,14 @@
   # image builder VM needs more than the default 1G to copy closure
   image.modules =
     let
-      # sandbox-<variant>-<arch>-<repo rev>-<nixos date.hash>
-      # e.g. sandbox-headless-x86_64-e3b6344-20260225.1267bb4
+      # sandbox-<variant>-<arch>-<version>-<nixos date.hash>
+      # e.g. sandbox-headless-x86_64-0.1.0-20260225.1267bb4
       arch = pkgs.stdenv.hostPlatform.parsed.cpu.name;
       parts = lib.splitString "." config.system.nixos.version;
       date = builtins.elemAt parts 2;
       hash = builtins.elemAt parts 3;
       variant = if gui then "gui" else "headless";
-      name = "sandbox-${variant}-${arch}-${repoRev}-${date}.${hash}";
+      name = "sandbox-${variant}-${arch}-${version}-${date}.${hash}";
 
       imageMemOverride =
         { config, modulesPath, ... }:
