@@ -42,33 +42,19 @@ too but runs under emulation (much slower).
 Pulls the latest image and launches it:
 
 ```sh
-# Headless (generate a key first with ssh-keygen -t ed25519 if needed)
+# headless (generate a key first with ssh-keygen -t ed25519 if needed)
 just run-headless --ssh-key ~/.ssh/id_ed25519.pub --claude --mount /path/to/project
 just ssh  # from a different terminal
 
-# GUI
+# gui
 just run-gui --claude --mount /path/to/project
 ```
 
-## Images
-
-Images are hosted at [dl.aflabs.org/iso](https://dl.aflabs.org/iso/) and
-managed with the `pull` and `list-images` commands:
+## SSH
 
 ```sh
-just pull headless                                # download latest
-just pull headless --version fe3265e              # specific version
-just list-images headless                         # list available versions
-```
-
-Downloaded images are cached in `~/.cache/sandbox-vm/` (or
-`$XDG_CACHE_HOME/sandbox-vm/` if set).
-
-To run a local image directly:
-
-```sh
-just run-image-headless ./sandbox-headless-x86_64.qcow2 --ssh-key ~/.ssh/id_ed25519.pub
-just run-image-gui ./sandbox-gui-x86_64.qcow2 --mount ~/projects
+just ssh                              # default port 2222
+just ssh 2222 -L 8080:localhost:8080  # port forward
 ```
 
 ## Run options
@@ -128,16 +114,42 @@ Use `nix search nixpkgs <name>` to find packages.
 | Rust    | `nix profile add nixpkgs#cargo nixpkgs#rustc`             |
 | Java    | `nix profile add nixpkgs#jdk nixpkgs#gradle`              |
 
-## Building from source
+## Images
 
-If you have nix installed, you can build images locally instead of downloading:
+Images are hosted at [dl.aflabs.org/iso](https://dl.aflabs.org/iso/) and
+managed with the `pull` and `list-images` commands:
 
 ```sh
-just build-headless x86_64
-just build-gui x86_64
+just pull headless                    # download latest
+just pull headless --version v0.1.0   # specific version
+just list-images headless             # list available versions
 ```
 
-Both support `x86_64` and `aarch64` architectures.
+Downloaded images are cached in `~/.cache/sandbox-vm/` (or
+`$XDG_CACHE_HOME/sandbox-vm/` if set).
+
+To run a local image directly:
+
+```sh
+just run-image-headless ./sandbox-headless-x86_64-v0.1.0.qcow2 --ssh-key ~/.ssh/id_ed25519.pub
+just run-image-gui ./sandbox-gui-x86_64-v0.1.0.qcow2 --mount ~/projects
+```
+
+## Building from source
+
+Requires [nix](https://nixos.org/download/). Works on NixOS, any Linux with
+nix, macOS (with a remote Linux builder), or inside Docker.
+
+```sh
+just build-headless x86_64        # or aarch64
+just build-gui x86_64
+
+# or directly with nix
+nix build .#packages.x86_64-linux.sandbox-headless
+nix build .#packages.aarch64-linux.sandbox-gui
+```
+
+Built images are GPG-signed and placed in `dist/`.
 
 ## Contributing
 
