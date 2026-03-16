@@ -21,7 +21,8 @@ finalize-image:
       hash=$(shasum -a 256 "$image" | awk '{print $1}')
     fi
     echo "$hash  $name" > "dist/${name%.qcow2}.sha256"
-    echo "dist/$name (sha256: $hash)"
+    gpg --detach-sign --armor "dist/${name%.qcow2}.sha256"
+    echo "dist/$name (sha256: $hash, signature: ${name%.qcow2}.sha256.asc)"
 
 # build sandbox headless VM image (requires nix)
 build-headless arch: && finalize-image
