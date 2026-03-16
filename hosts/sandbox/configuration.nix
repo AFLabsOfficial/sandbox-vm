@@ -32,6 +32,7 @@
 
   users.users.sandbox = {
     isNormalUser = true;
+    initialPassword = "sandbox";
     extraGroups = [
       "wheel"
       "docker"

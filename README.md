@@ -57,6 +57,8 @@ just ssh                              # default port 2222
 just ssh 2222 -L 8080:localhost:8080  # port forward
 ```
 
+> **Note:** The `sandbox` user has password `sandbox` as a fallback for debugging.
+
 ## Run options
 
 ```
