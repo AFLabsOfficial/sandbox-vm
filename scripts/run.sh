@@ -8,13 +8,12 @@ SSH_PORT=2222
 MEMORY=8G
 CPUS=4
 MOUNTS=()
-CLAUDE_DIR=""
-CLAUDE_JSON=""
+CLAUDE=false
 SSH_KEYS=()
 SEED_ISO=""
 IMAGE=""
 GUEST_ARCH=""
-GUI=false
+GUI=""
 
 usage() {
   cat <<EOF
@@ -22,12 +21,12 @@ Usage: run.sh <image.qcow2> [options]
 
 Options:
   --arch <arch>          Guest architecture (auto-detected from image name)
-  --gui                  Launch with graphical display (default: headless)
+  --gui                  Force graphical display
+  --headless             Force headless mode
   --ssh-key <key.pub>    SSH public key (repeatable, auto-generates seed ISO)
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
-  --claude <path>        Mount claude config dir writable into VM
-  --claude-json <path>   Mount .claude.json writable into VM
+  --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
   --ssh-port <port>      SSH port forward (default: 2222)
@@ -44,11 +43,11 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --arch)       GUEST_ARCH="$2"; shift 2 ;;
     --gui)        GUI=true; shift ;;
+    --headless)   GUI=false; shift ;;
     --ssh-key)    SSH_KEYS+=("$2"); shift 2 ;;
     --seed-iso)   SEED_ISO="$2"; shift 2 ;;
     --mount)       MOUNTS+=("$2"); shift 2 ;;
-    --claude)      CLAUDE_DIR="$2"; shift 2 ;;
-    --claude-json) CLAUDE_JSON="$2"; shift 2 ;;
+    --claude)      CLAUDE=true; shift ;;
     --memory)      MEMORY="$2"; shift 2 ;;
     --cpus)       CPUS="$2"; shift 2 ;;
     --ssh-port)   SSH_PORT="$2"; shift 2 ;;
@@ -61,15 +60,16 @@ if [ ! -f "$IMAGE" ]; then
   exit 1
 fi
 
-# default to host architecture
-if [ -z "$GUEST_ARCH" ]; then
-  case "$(uname -m)" in
-    x86_64|amd64)  GUEST_ARCH="x86_64" ;;
-    aarch64|arm64) GUEST_ARCH="aarch64" ;;
-    *)             echo "error: cannot detect guest arch, use --arch"; exit 1 ;;
+# auto-detect gui from image filename
+if [ -z "$GUI" ]; then
+  case "$(basename "$IMAGE")" in
+    *-gui-*) GUI=true ;;
+    *)       GUI=false ;;
   esac
 fi
 
+# default to host architecture and normalize
+[ -z "$GUEST_ARCH" ] && GUEST_ARCH="$(uname -m)"
 case "$GUEST_ARCH" in
   x86_64|amd64)  GUEST_ARCH="x86_64" ;;
   aarch64|arm64) GUEST_ARCH="aarch64" ;;
@@ -109,7 +109,6 @@ fi
 
 cleanup() {
   [ -n "$CLEANUP_SEED" ] && rm -rf "$(dirname "$CLEANUP_SEED")"
-  [ -n "${CLAUDE_JSON_TMPDIR:-}" ] && rm -rf "$CLAUDE_JSON_TMPDIR"
 }
 trap cleanup EXIT
 
@@ -174,26 +173,27 @@ FS_ID=0
 for mount_path in "${MOUNTS[@]}"; do
   mount_path=$(realpath "$mount_path")
   name=$(basename "$mount_path")
+  # 9p tags limited to 31 chars: 2 (prefix) + 29 (name)
+  tag="m_${name:0:29}"
   QEMU_ARGS+=(
-    -virtfs "local,path=$mount_path,mount_tag=mount_$name,security_model=none,id=fs${FS_ID}"
+    -virtfs "local,path=$mount_path,mount_tag=$tag,security_model=none,id=fs${FS_ID}"
   )
   FS_ID=$((FS_ID + 1))
 done
 
-if [ -n "$CLAUDE_DIR" ]; then
-  CLAUDE_DIR=$(realpath "$CLAUDE_DIR")
-  QEMU_ARGS+=(
-    -virtfs "local,path=$CLAUDE_DIR,mount_tag=claude,security_model=none,id=fs${FS_ID}"
-  )
-  FS_ID=$((FS_ID + 1))
-fi
+if [ "$CLAUDE" = true ]; then
+  claude_dir="${CLAUDE_CONFIG_DIR:-}"
+  if [ -z "$claude_dir" ] || [ ! -d "$claude_dir" ]; then
+    fallback="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/claude"
+    mkdir -p "$fallback"
+    claude_dir="$fallback"
+    echo "note: CLAUDE_CONFIG_DIR not set or missing, using $fallback"
+    echo "  run 'claude login' inside the VM to authenticate"
+  fi
+  claude_dir=$(realpath "$claude_dir")
 
-if [ -n "$CLAUDE_JSON" ]; then
-  CLAUDE_JSON=$(realpath "$CLAUDE_JSON")
-  CLAUDE_JSON_TMPDIR=$(mktemp -d -p "$(dirname "$CLAUDE_JSON")")
-  ln "$CLAUDE_JSON" "$CLAUDE_JSON_TMPDIR/.claude.json"
   QEMU_ARGS+=(
-    -virtfs "local,path=$CLAUDE_JSON_TMPDIR,mount_tag=claude_json,security_model=none,id=fs${FS_ID}"
+    -virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${FS_ID}"
   )
   FS_ID=$((FS_ID + 1))
 fi

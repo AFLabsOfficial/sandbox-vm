@@ -22,6 +22,8 @@
     }:
 
     let
+      version = "v0.1.0";
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
@@ -81,8 +83,18 @@
           specialArgs = {
             inherit inputs;
             inherit gui;
+            inherit version;
           };
         };
+
+      # build a qcow2 image from a nixos configuration
+      mkImage =
+        system: opts: variant:
+        let
+          base = mkSandbox system opts;
+          imageModule = base.config.image.modules.${variant};
+        in
+        (base.extendModules { modules = [ imageModule ]; }).config.system.build.image;
     in
 
     {
@@ -91,6 +103,17 @@
         sandbox-aarch64 = mkSandbox "aarch64-linux" { };
         sandbox-gui = mkSandbox "x86_64-linux" { gui = true; };
         sandbox-gui-aarch64 = mkSandbox "aarch64-linux" { gui = true; };
+      };
+
+      packages = {
+        x86_64-linux = {
+          sandbox-headless = mkImage "x86_64-linux" { } "qemu";
+          sandbox-gui = mkImage "x86_64-linux" { gui = true; } "qemu";
+        };
+        aarch64-linux = {
+          sandbox-headless = mkImage "aarch64-linux" { } "qemu-efi";
+          sandbox-gui = mkImage "aarch64-linux" { gui = true; } "qemu-efi";
+        };
       };
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);

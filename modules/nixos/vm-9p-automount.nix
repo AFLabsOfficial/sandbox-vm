@@ -20,7 +20,7 @@ in
 
       prefix = lib.mkOption {
         type = lib.types.str;
-        default = "mount_";
+        default = "m_";
         description = "9p mount tag prefix to match";
       };
 

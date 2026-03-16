@@ -4,6 +4,7 @@
   inputs,
   config,
   gui ? false,
+  version ? "unknown",
   ...
 }:
 {
@@ -31,6 +32,7 @@
 
   users.users.sandbox = {
     isNormalUser = true;
+    initialPassword = "sandbox";
     extraGroups = [
       "wheel"
       "docker"
@@ -42,6 +44,9 @@
     user = "sandbox";
     bindfs = true;
   };
+
+  # ensure .config exists with correct ownership before automount
+  systemd.tmpfiles.rules = [ "d /home/sandbox/.config 0755 sandbox users -" ];
 
   # writable claude config via 9p with bindfs for cross-platform UID compat
   systemd.services.claude-9p-mount = {
@@ -63,47 +68,17 @@
 
         [ -z "$tag" ] && exit 0
 
-        mkdir -p /mnt/9p/claude /home/sandbox/.claude
+        mkdir -p /mnt/9p/claude /home/sandbox/.config/claude
         ${pkgs.util-linux}/bin/mount -t 9p claude /mnt/9p/claude \
           -o trans=virtio,version=9p2000.L || exit 0
         ${pkgs.bindfs}/bin/bindfs \
           --force-user=sandbox --force-group=users \
-          /mnt/9p/claude /home/sandbox/.claude
+          /mnt/9p/claude /home/sandbox/.config/claude
       '';
     };
   };
 
-  # writable .claude.json via 9p with bindfs for cross-platform UID compat
-  systemd.services.claude-json = {
-    description = "Mount .claude.json via 9p with bindfs";
-    after = [
-      "local-fs.target"
-      "systemd-modules-load.service"
-    ];
-    wants = [ "systemd-modules-load.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "claude-json-mount" ''
-        tag=$(find /sys/devices -name mount_tag 2>/dev/null | while read -r f; do
-          t=$(tr -d '\0' < "$f")
-          [ "$t" = "claude_json" ] && echo "$t" && break
-        done)
-
-        [ -z "$tag" ] && exit 0
-
-        mkdir -p /mnt/9p/claude_json /mnt/bindfs/claude_json
-        ${pkgs.util-linux}/bin/mount -t 9p claude_json /mnt/9p/claude_json \
-          -o trans=virtio,version=9p2000.L || exit 0
-        ${pkgs.bindfs}/bin/bindfs \
-          --force-user=sandbox --force-group=users \
-          /mnt/9p/claude_json /mnt/bindfs/claude_json
-        ln -sf /mnt/bindfs/claude_json/.claude.json /home/sandbox/.claude.json
-        chown -h sandbox:users /home/sandbox/.claude.json
-      '';
-    };
-  };
+  environment.sessionVariables.CLAUDE_CONFIG_DIR = "/home/sandbox/.config/claude";
 
   # no hardware firmware needed in a VM
   hardware.enableRedistributableFirmware = lib.mkForce false;
@@ -132,13 +107,14 @@
   # image builder VM needs more than the default 1G to copy closure
   image.modules =
     let
-      # sandbox-{headless,gui}-<nixos date.hash>-<arch> (e.g. sandbox-headless-20260225.1267bb4-x86_64)
+      # sandbox-<variant>-<arch>-<version>-<nixos date.hash>
+      # e.g. sandbox-headless-x86_64-0.1.0-20260225.1267bb4
       arch = pkgs.stdenv.hostPlatform.parsed.cpu.name;
       parts = lib.splitString "." config.system.nixos.version;
       date = builtins.elemAt parts 2;
       hash = builtins.elemAt parts 3;
       variant = if gui then "gui" else "headless";
-      name = "sandbox-${variant}-${date}.${hash}-${arch}";
+      name = "sandbox-${variant}-${arch}-${version}-${date}.${hash}";
 
       imageMemOverride =
         { config, modulesPath, ... }:
