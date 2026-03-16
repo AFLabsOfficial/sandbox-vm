@@ -43,11 +43,11 @@ Pulls the latest image and launches it:
 
 ```sh
 # Headless (generate a key first with ssh-keygen -t ed25519 if needed)
-just run-headless --ssh-key ~/.ssh/id_ed25519.pub --mount ~/projects
+just run-headless --ssh-key ~/.ssh/id_ed25519.pub --claude --mount /path/to/project
 just ssh  # from a different terminal
 
 # GUI
-just run-gui --mount ~/projects --claude ~/.claude --claude-json ~/.claude.json
+just run-gui --claude --mount /path/to/project
 ```
 
 ## Images
@@ -77,8 +77,7 @@ just run-image-gui ./sandbox-gui-x86_64.qcow2 --mount ~/projects
   --ssh-key <key.pub>    SSH public key (repeatable)
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
-  --claude <path>        Mount claude config dir writable into VM
-  --claude-json <path>   Mount .claude.json writable into VM
+  --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
   --arch <arch>          Guest architecture (default: host arch)
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
@@ -103,8 +102,8 @@ Inside the VM:
 
 ### Claude Code
 
-Pass `--claude ~/.claude` to mount your claude config writable into the VM.
-Pass `--claude-json ~/.claude.json` to mount your auth config writable into the VM.
+Pass `--claude` to mount your claude config dir writable into the VM. Uses
+`CLAUDE_CONFIG_DIR` if set, otherwise falls back to `~/.config/sandbox-vm/claude`.
 Claude Code is pre-installed and will pick up your auth automatically.
 
 ## Installing additional tools
