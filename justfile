@@ -28,9 +28,9 @@ build-headless arch: && finalize-image
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{arch}}" = "x86_64" ]; then
-      nixos-rebuild build-image --image-variant qemu --flake .#sandbox
+      nix build .#packages.x86_64-linux.sandbox-headless
     elif [ "{{arch}}" = "aarch64" ]; then
-      nixos-rebuild build-image --image-variant qemu-efi --flake .#sandbox-aarch64
+      nix build .#packages.aarch64-linux.sandbox-headless
     else
       echo "error: arch must be x86_64 or aarch64"; exit 1
     fi
@@ -40,9 +40,9 @@ build-gui arch: && finalize-image
     #!/usr/bin/env bash
     set -euo pipefail
     if [ "{{arch}}" = "x86_64" ]; then
-      nixos-rebuild build-image --image-variant qemu --flake .#sandbox-gui
+      nix build .#packages.x86_64-linux.sandbox-gui
     elif [ "{{arch}}" = "aarch64" ]; then
-      nixos-rebuild build-image --image-variant qemu-efi --flake .#sandbox-gui-aarch64
+      nix build .#packages.aarch64-linux.sandbox-gui
     else
       echo "error: arch must be x86_64 or aarch64"; exit 1
     fi
