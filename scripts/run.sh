@@ -14,7 +14,7 @@ SSH_KEYS=()
 SEED_ISO=""
 IMAGE=""
 GUEST_ARCH=""
-GUI=false
+GUI=""
 
 usage() {
   cat <<EOF
@@ -22,7 +22,8 @@ Usage: run.sh <image.qcow2> [options]
 
 Options:
   --arch <arch>          Guest architecture (auto-detected from image name)
-  --gui                  Launch with graphical display (default: headless)
+  --gui                  Force graphical display
+  --headless             Force headless mode
   --ssh-key <key.pub>    SSH public key (repeatable, auto-generates seed ISO)
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
@@ -44,6 +45,7 @@ while [ $# -gt 0 ]; do
   case "$1" in
     --arch)       GUEST_ARCH="$2"; shift 2 ;;
     --gui)        GUI=true; shift ;;
+    --headless)   GUI=false; shift ;;
     --ssh-key)    SSH_KEYS+=("$2"); shift 2 ;;
     --seed-iso)   SEED_ISO="$2"; shift 2 ;;
     --mount)       MOUNTS+=("$2"); shift 2 ;;
@@ -61,15 +63,16 @@ if [ ! -f "$IMAGE" ]; then
   exit 1
 fi
 
-# default to host architecture
-if [ -z "$GUEST_ARCH" ]; then
-  case "$(uname -m)" in
-    x86_64|amd64)  GUEST_ARCH="x86_64" ;;
-    aarch64|arm64) GUEST_ARCH="aarch64" ;;
-    *)             echo "error: cannot detect guest arch, use --arch"; exit 1 ;;
+# auto-detect gui from image filename
+if [ -z "$GUI" ]; then
+  case "$(basename "$IMAGE")" in
+    *-gui-*) GUI=true ;;
+    *)       GUI=false ;;
   esac
 fi
 
+# default to host architecture and normalize
+[ -z "$GUEST_ARCH" ] && GUEST_ARCH="$(uname -m)"
 case "$GUEST_ARCH" in
   x86_64|amd64)  GUEST_ARCH="x86_64" ;;
   aarch64|arm64) GUEST_ARCH="aarch64" ;;

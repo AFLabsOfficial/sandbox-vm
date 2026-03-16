@@ -1,6 +1,7 @@
 # Ignore build outputs
 result
 result-*
+dist/
 
 # Ignore automatically generated direnv output
 .direnv

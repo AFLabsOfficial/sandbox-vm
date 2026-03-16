@@ -81,6 +81,7 @@
           specialArgs = {
             inherit inputs;
             inherit gui;
+            repoRev = inputs.self.shortRev or inputs.self.dirtyShortRev or "unknown";
           };
         };
     in
