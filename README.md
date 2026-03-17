@@ -94,6 +94,15 @@ Pass `--claude` to mount your claude config dir writable into the VM. Uses
 `CLAUDE_CONFIG_DIR` if set, otherwise falls back to `~/.config/sandbox-vm/claude`.
 Claude Code is pre-installed and will pick up your auth automatically.
 
+This repo includes a `/sandbox-vm` skill for Claude Code. To make it available
+globally, copy it to your personal skills directory:
+
+```sh
+cp -r .claude/skills/sandbox-vm "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/
+```
+
+Then run `/sandbox-vm` inside the VM to give Claude context about the environment.
+
 ## Installing additional tools
 
 Need a language runtime or tool that isn't pre-installed? Install it inside
