@@ -98,7 +98,8 @@ This repo includes a `/sandbox-vm` skill for Claude Code. To make it available
 globally, copy it to your personal skills directory:
 
 ```sh
-cp -r .claude/skills/sandbox-vm "${CLAUDE_CONFIG_DIR:-$HOME/.claude}"/skills/
+mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.config/sandbox-vm/claude}"/skills/sandbox-vm
+cp -r .claude/skills/sandbox-vm/* "${CLAUDE_CONFIG_DIR:-$HOME/.config/sandbox-vm/claude}"/skills/sandbox-vm/
 ```
 
 Then run `/sandbox-vm` inside the VM to give Claude context about the environment.
