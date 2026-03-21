@@ -35,6 +35,30 @@ EOF
 	exit "${1:-0}"
 }
 
+verify_signature() {
+	local hash_file="$1" sig_file="$2"
+	if [ ! -f "$sig_file" ]; then
+		warn "no .sha256.asc signature found, skipping signature verification"
+		return 0
+	fi
+	if ! command -v gpg &>/dev/null; then
+		warn "gpg not found, skipping signature verification"
+		return 0
+	fi
+
+	# auto-import signing keys from repo if available
+	local keys_file="$SCRIPT_DIR/../KEYS"
+	if [ -f "$keys_file" ]; then
+		gpg --import "$keys_file" 2>/dev/null || true
+	fi
+
+	info "verifying signature..."
+	if ! gpg --verify "$sig_file" "$hash_file" 2>/dev/null; then
+		die "signature verification failed for $hash_file"
+	fi
+	info "signature ok"
+}
+
 verify_hash() {
 	local file="$1" hash_file="$2"
 	if [ ! -f "$hash_file" ]; then
@@ -132,12 +156,15 @@ main() {
 		[ -n "$filename" ] || die "no image found for ${variant}/${arch}"
 	fi
 
-	local hashname url hash_url dest hash_dest
+	local hashname signame url hash_url sig_url dest hash_dest sig_dest
 	hashname="${filename%.qcow2}.sha256"
+	signame="${hashname}.asc"
 	url="$BASE_URL/$filename"
 	hash_url="$BASE_URL/$hashname"
+	sig_url="$BASE_URL/$signame"
 	dest="$cache_dir/$filename"
 	hash_dest="$cache_dir/$hashname"
+	sig_dest="$cache_dir/$signame"
 
 	if [ -f "$dest" ] && [ "$force" != true ]; then
 		info "cached: $filename"
@@ -149,6 +176,8 @@ main() {
 	TMPFILE="$cache_dir/.pull-$$-$filename"
 	curl -f --progress-bar -o "$TMPFILE" "$url"
 	curl -fsSL -o "$hash_dest" "$hash_url" 2>/dev/null || true
+	curl -fsSL -o "$sig_dest" "$sig_url" 2>/dev/null || true
+	verify_signature "$hash_dest" "$sig_dest"
 	verify_hash "$TMPFILE" "$hash_dest"
 	mv "$TMPFILE" "$dest"
 	TMPFILE=""
