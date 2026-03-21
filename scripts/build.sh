@@ -4,13 +4,12 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-ARCH=""
-VARIANT=""
-DOCKER=false
-SIGN=false
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+setup_colors
 
 usage() {
-  cat <<EOF
+	cat <<EOF
 Usage: build.sh [options]
 
 Options:
@@ -21,105 +20,101 @@ Options:
   -s, --sign         Sign the image after building
   -h, --help         Show usage
 EOF
-  exit "${1:-0}"
+	exit "${1:-0}"
 }
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --headless) VARIANT="headless"; shift ;;
-    --gui)      VARIANT="gui"; shift ;;
-    --arch)     ARCH="$2"; shift 2 ;;
-    --docker)   DOCKER=true; shift ;;
-    -s|--sign)  SIGN=true; shift ;;
-    -h|--help)  usage ;;
-    *)          echo "unknown option: $1" >&2; usage 1 ;;
-  esac
-done
+main() {
+	local arch="" variant="" docker=false sign=false
 
-if [ -z "$VARIANT" ]; then
-  echo "error: specify --headless or --gui" >&2
-  exit 1
-fi
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--headless)
+			variant="headless"
+			shift
+			;;
+		--gui)
+			variant="gui"
+			shift
+			;;
+		--arch)
+			arch="$2"
+			shift 2
+			;;
+		--docker)
+			docker=true
+			shift
+			;;
+		-s | --sign)
+			sign=true
+			shift
+			;;
+		-h | --help) usage ;;
+		*)
+			echo "${red}error:${reset} unknown option: $1" >&2
+			usage 1
+			;;
+		esac
+	done
 
-# default to host architecture and normalize
-[ -z "$ARCH" ] && ARCH="$(uname -m)"
-case "$ARCH" in
-  x86_64|amd64)  ARCH="x86_64" ;;
-  aarch64|arm64) ARCH="aarch64" ;;
-  *)             echo "error: unsupported architecture: $ARCH" >&2; exit 1 ;;
-esac
+	[ -n "$variant" ] || die "specify --headless or --gui"
+	arch=$(normalize_arch "$arch")
 
-PACKAGE="packages.${ARCH}-linux.sandbox-${VARIANT}"
+	local package="packages.${arch}-linux.sandbox-${variant}"
 
-# preflight checks
-if [ "$SIGN" = true ]; then
-  if ! command -v gpg &>/dev/null; then
-    echo "error: --sign requires gpg" >&2
-    exit 1
-  fi
-fi
+	# preflight checks
+	if [ "$sign" = true ]; then
+		require_cmd gpg "--sign requires gpg"
+	fi
 
-if [ "$DOCKER" = true ]; then
-  if ! command -v docker &>/dev/null; then
-    echo "error: docker not found" >&2
-    exit 1
-  fi
+	if [ "$docker" = true ]; then
+		require_cmd docker
+		[ "$(uname -s)" = "Linux" ] || die "--docker requires Linux (KVM is not available inside Docker on macOS)"
+		[ -e /dev/kvm ] || die "/dev/kvm not found, KVM is required for image builds"
 
-  if [ "$(uname -s)" != "Linux" ]; then
-    echo "error: --docker requires Linux (KVM is not available inside Docker on macOS)" >&2
-    exit 1
-  fi
+		local host_arch
+		host_arch="$(uname -m)"
+		[ "$arch" = "$host_arch" ] || die "--docker cannot cross-build (host is $host_arch, target is $arch), use nix with a remote builder"
+	else
+		require_cmd nix "use --docker to build without nix"
+	fi
 
-  if [ ! -e /dev/kvm ]; then
-    echo "error: /dev/kvm not found, KVM is required for image builds" >&2
-    exit 1
-  fi
+	mkdir -p "$REPO_DIR/dist"
 
-  HOST_ARCH="$(uname -m)"
-  if [ "$ARCH" != "$HOST_ARCH" ]; then
-    echo "error: --docker cannot cross-build (host is $HOST_ARCH, target is $ARCH)" >&2
-    echo "  use nix with a remote builder for cross-architecture builds" >&2
-    exit 1
-  fi
-else
-  if ! command -v nix &>/dev/null; then
-    echo "error: nix not found (use --docker to build without nix)" >&2
-    exit 1
-  fi
-fi
+	if [ "$docker" = true ]; then
+		info "building $variant $arch image via docker..."
+		docker build -t sandbox-vm-builder "$REPO_DIR"
 
-mkdir -p "$REPO_DIR/dist"
+		local uid gid
+		uid="$(id -u)"
+		gid="$(id -g)"
+		docker run --rm \
+			--device /dev/kvm \
+			-v sandbox-vm-nix:/nix \
+			-v "$REPO_DIR/dist:/output" \
+			sandbox-vm-builder \
+			bash -c "nix build .#${package} && cp result/*.qcow2 /output/ && chown $uid:$gid /output/*.qcow2"
+	else
+		info "building $variant $arch image via nix..."
+		nix build "$REPO_DIR#${package}"
 
-if [ "$DOCKER" = true ]; then
+		local dir image
+		dir="$(readlink "$REPO_DIR/result")"
+		image="$(find "$dir" -name '*.qcow2' -print -quit)"
+		[ -n "$image" ] || die "no .qcow2 found in $dir"
 
-  echo "building $VARIANT $ARCH image via docker..."
-  docker build -t sandbox-vm-builder "$REPO_DIR"
+		cp "$image" "$REPO_DIR/dist/"
+	fi
 
-  uid="$(id -u)"
-  gid="$(id -g)"
-  docker run --rm \
-    --device /dev/kvm \
-    -v sandbox-vm-nix:/nix \
-    -v "$REPO_DIR/dist:/output" \
-    sandbox-vm-builder \
-    bash -c "nix build .#${PACKAGE} && cp result/*.qcow2 /output/ && chown $uid:$gid /output/*.qcow2"
-else
-  echo "building $VARIANT $ARCH image via nix..."
-  nix build "$REPO_DIR#${PACKAGE}"
+	local output
+	# shellcheck disable=SC2012
+	output="$(ls -t "${REPO_DIR}/dist/sandbox-${variant}-${arch}-"*.qcow2 2>/dev/null | head -1)" || true
+	[ -n "$output" ] || die "no image found in dist/"
+	echo "${green}${output}${reset}" >&2
+	echo "$output"
 
-  dir="$(readlink "$REPO_DIR/result")"
-  image="$(find "$dir" -name '*.qcow2' -print -quit)"
-  if [ -z "$image" ]; then
-    echo "error: no .qcow2 found in $dir" >&2
-    exit 1
-  fi
+	if [ "$sign" = true ]; then
+		bash "$SCRIPT_DIR/sign.sh" "$output"
+	fi
+}
 
-  cp "$image" "$REPO_DIR/dist/"
-fi
-
-output="$(find "$REPO_DIR/dist" -name "sandbox-${VARIANT}-${ARCH}-*.qcow2" -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2)"
-echo "$output"
-
-if [ "$SIGN" = true ]; then
-  bash "$SCRIPT_DIR/sign.sh" "$output"
-fi
+main "$@"

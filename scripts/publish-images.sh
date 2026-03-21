@@ -10,21 +10,24 @@ set -euo pipefail
 #   ├── sandbox-headless-x86_64-v0.1.0-20260306.abc1234.sha256.asc
 #   └── ...
 
-INC_DIR="${HOME}/inc"
-ISO_DIR="${HOME}/http/iso"
+main() {
+	local inc_dir="${HOME}/inc"
+	local iso_dir="${HOME}/http/iso"
 
-mkdir -p "$ISO_DIR"
+	mkdir -p "$iso_dir"
 
-# move new images and their hashes
-moved=0
-for img in "$INC_DIR"/sandbox-headless-*.qcow2 "$INC_DIR"/sandbox-gui-*.qcow2; do
-  [ -f "$img" ] || continue
-  mv "$img" "$ISO_DIR/"
-  hash="${img%.qcow2}.sha256"
-  [ -f "$hash" ] && mv "$hash" "$ISO_DIR/"
-  sig="${hash}.asc"
-  [ -f "$sig" ] && mv "$sig" "$ISO_DIR/"
-  moved=$((moved + 1))
-done
+	local moved=0 img hash sig
+	for img in "$inc_dir"/sandbox-headless-*.qcow2 "$inc_dir"/sandbox-gui-*.qcow2; do
+		[ -f "$img" ] || continue
+		mv "$img" "$iso_dir/"
+		hash="${img%.qcow2}.sha256"
+		[ -f "$hash" ] && mv "$hash" "$iso_dir/"
+		sig="${hash}.asc"
+		[ -f "$sig" ] && mv "$sig" "$iso_dir/"
+		moved=$((moved + 1))
+	done
 
-echo "moved $moved new image(s)"
+	echo "moved $moved new image(s)"
+}
+
+main "$@"

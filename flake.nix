@@ -123,6 +123,8 @@
           packages = with nixpkgs.legacyPackages.${system}; [
             pre-commit
             statix
+            shellcheck
+            shfmt
             qemu
             cdrtools
           ];

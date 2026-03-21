@@ -3,21 +3,23 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# defaults
-SSH_PORT=2222
-MEMORY=8G
-CPUS=4
-MOUNTS=()
-CLAUDE=false
-SSH_KEYS=()
-SEED_ISO=""
-IMAGE=""
-GUEST_ARCH=""
-GUI=""
-DISK_SIZE=""
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+setup_colors
+
+# globals for cleanup trap
+CLEANUP_SEED=""
+CLEANUP_OVERLAY=""
+
+cleanup() {
+	[ -n "$CLEANUP_SEED" ] && rm -rf "$(dirname "$CLEANUP_SEED")"
+	[ -n "$CLEANUP_OVERLAY" ] && rm -rf "$CLEANUP_OVERLAY"
+	return 0
+}
+trap cleanup EXIT
 
 usage() {
-  cat <<EOF
+	cat <<EOF
 Usage: run.sh <image.qcow2> [options]
 
 Options:
@@ -32,190 +34,221 @@ Options:
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
   --ssh-port <port>      SSH port forward (default: 2222)
+  -h, --help             Show usage
 EOF
-  exit 1
+	exit "${1:-0}"
 }
 
-[ "${1:-}" ] || usage
+main() {
+	local ssh_port=2222 memory=8G cpus=4 claude=false
+	local seed_iso="" image="" guest_arch="" gui="" disk_size=""
+	local -a mounts=() ssh_keys=()
 
-IMAGE="$1"
-shift
+	case "${1:-}" in
+	-h | --help) usage ;;
+	"") usage 1 ;;
+	esac
+	image="$1"
+	shift
 
-while [ $# -gt 0 ]; do
-  case "$1" in
-    --arch)       GUEST_ARCH="$2"; shift 2 ;;
-    --gui)        GUI=true; shift ;;
-    --headless)   GUI=false; shift ;;
-    --ssh-key)    SSH_KEYS+=("$2"); shift 2 ;;
-    --seed-iso)   SEED_ISO="$2"; shift 2 ;;
-    --mount)       MOUNTS+=("$2"); shift 2 ;;
-    --claude)      CLAUDE=true; shift ;;
-    --disk-size)   DISK_SIZE="$2"; shift 2 ;;
-    --memory)      MEMORY="$2"; shift 2 ;;
-    --cpus)       CPUS="$2"; shift 2 ;;
-    --ssh-port)   SSH_PORT="$2"; shift 2 ;;
-    *)            echo "unknown option: $1"; usage ;;
-  esac
-done
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--arch)
+			guest_arch="$2"
+			shift 2
+			;;
+		--gui)
+			gui=true
+			shift
+			;;
+		--headless)
+			gui=false
+			shift
+			;;
+		--ssh-key)
+			ssh_keys+=("$2")
+			shift 2
+			;;
+		--seed-iso)
+			seed_iso="$2"
+			shift 2
+			;;
+		--mount)
+			mounts+=("$2")
+			shift 2
+			;;
+		--claude)
+			claude=true
+			shift
+			;;
+		--disk-size)
+			disk_size="$2"
+			shift 2
+			;;
+		--memory)
+			memory="$2"
+			shift 2
+			;;
+		--cpus)
+			cpus="$2"
+			shift 2
+			;;
+		--ssh-port)
+			ssh_port="$2"
+			shift 2
+			;;
+		-h | --help) usage ;;
+		*)
+			echo "${red}error:${reset} unknown option: $1" >&2
+			usage 1
+			;;
+		esac
+	done
 
-if [ ! -f "$IMAGE" ]; then
-  echo "error: image not found: $IMAGE"
-  exit 1
-fi
+	[ -f "$image" ] || die "image not found: $image"
 
-# auto-detect gui from image filename
-if [ -z "$GUI" ]; then
-  case "$(basename "$IMAGE")" in
-    *-gui-*) GUI=true ;;
-    *)       GUI=false ;;
-  esac
-fi
+	# auto-detect gui from image filename
+	if [ -z "$gui" ]; then
+		case "$(basename "$image")" in
+		*-gui-*) gui=true ;;
+		*) gui=false ;;
+		esac
+	fi
 
-# default to host architecture and normalize
-[ -z "$GUEST_ARCH" ] && GUEST_ARCH="$(uname -m)"
-case "$GUEST_ARCH" in
-  x86_64|amd64)  GUEST_ARCH="x86_64" ;;
-  aarch64|arm64) GUEST_ARCH="aarch64" ;;
-  *)             echo "error: unsupported architecture: $GUEST_ARCH"; exit 1 ;;
-esac
+	guest_arch=$(normalize_arch "$guest_arch")
 
-# platform detection
-HOST_ARCH=$(uname -m)
-OS=$(uname -s)
-ACCEL="tcg"
+	# platform detection
+	local host_arch os accel qemu_bin
+	host_arch=$(uname -m)
+	os=$(uname -s)
+	accel="tcg"
 
-case "$OS" in
-  Linux)
-    [ -r /dev/kvm ] && ACCEL="kvm"
-    ;;
-  Darwin)
-    # hvf only works when guest matches host
-    case "$HOST_ARCH" in
-      aarch64|arm64) [ "$GUEST_ARCH" = "aarch64" ] && ACCEL="hvf" ;;
-      x86_64|amd64)  [ "$GUEST_ARCH" = "x86_64" ] && ACCEL="hvf" ;;
-    esac
-    ;;
-esac
+	case "$os" in
+	Linux)
+		[ -r /dev/kvm ] && accel="kvm"
+		;;
+	Darwin)
+		# hvf only works when guest matches host
+		case "$host_arch" in
+		aarch64 | arm64) [ "$guest_arch" = "aarch64" ] && accel="hvf" ;;
+		x86_64 | amd64) [ "$guest_arch" = "x86_64" ] && accel="hvf" ;;
+		esac
+		;;
+	esac
 
-case "$GUEST_ARCH" in
-  x86_64)  QEMU_BIN="qemu-system-x86_64" ;;
-  aarch64) QEMU_BIN="qemu-system-aarch64" ;;
-esac
+	case "$guest_arch" in
+	x86_64) qemu_bin="qemu-system-x86_64" ;;
+	aarch64) qemu_bin="qemu-system-aarch64" ;;
+	esac
 
-# auto-generate seed ISO from SSH key
-CLEANUP_SEED=""
-if [ "${#SSH_KEYS[@]}" -gt 0 ] && [ -z "$SEED_ISO" ]; then
-  SEED_ISO="$(mktemp -d)/seed.iso"
-  CLEANUP_SEED="$SEED_ISO"
-  bash "$SCRIPT_DIR/make-seed.sh" "$SEED_ISO" "${SSH_KEYS[@]}"
-fi
+	# auto-generate seed ISO from SSH keys
+	if [ "${#ssh_keys[@]}" -gt 0 ] && [ -z "$seed_iso" ]; then
+		seed_iso="$(mktemp -d)/seed.iso"
+		CLEANUP_SEED="$seed_iso"
+		bash "$SCRIPT_DIR/make-seed.sh" "$seed_iso" "${ssh_keys[@]}"
+	fi
 
-# create resized overlay when --disk-size is given
-CLEANUP_OVERLAY=""
-if [ -n "$DISK_SIZE" ]; then
-  CLEANUP_OVERLAY=$(mktemp -d)
-  OVERLAY="$CLEANUP_OVERLAY/overlay.qcow2"
-  qemu-img create -f qcow2 -b "$(realpath "$IMAGE")" -F qcow2 "$OVERLAY" "$DISK_SIZE"
-  DRIVE_ARG="file=$OVERLAY,format=qcow2"
-else
-  DRIVE_ARG="file=$IMAGE,format=qcow2,snapshot=on"
-fi
+	# create resized overlay when --disk-size is given
+	local drive_arg
+	if [ -n "$disk_size" ]; then
+		CLEANUP_OVERLAY=$(mktemp -d)
+		local overlay="$CLEANUP_OVERLAY/overlay.qcow2"
+		qemu-img create -f qcow2 -b "$(realpath "$image")" -F qcow2 "$overlay" "$disk_size"
+		drive_arg="file=$overlay,format=qcow2"
+	else
+		drive_arg="file=$image,format=qcow2,snapshot=on"
+	fi
 
-cleanup() {
-  [ -n "$CLEANUP_SEED" ] && rm -rf "$(dirname "$CLEANUP_SEED")"
-  [ -n "$CLEANUP_OVERLAY" ] && rm -rf "$CLEANUP_OVERLAY"
+	# build qemu command
+	local -a qemu_args=(
+		"$qemu_bin"
+		-accel "$accel"
+		-m "$memory"
+		-smp "$cpus"
+		-drive "$drive_arg"
+		-nic "user,hostfwd=tcp::${ssh_port}-:22"
+	)
+
+	# display mode
+	if [ "$gui" = "true" ]; then
+		if [ "$guest_arch" = "aarch64" ]; then
+			qemu_args+=(-device virtio-gpu-pci -device usb-ehci -device usb-kbd -device usb-mouse)
+		else
+			qemu_args+=(-device virtio-vga)
+		fi
+	else
+		qemu_args+=(-nographic)
+	fi
+
+	# x86_64 with hardware accel — pass through host CPU features (AVX, etc.)
+	if [ "$guest_arch" = "x86_64" ] && [ "$accel" != "tcg" ]; then
+		qemu_args+=(-cpu host)
+	fi
+
+	# aarch64 guest needs machine type and uefi firmware
+	if [ "$guest_arch" = "aarch64" ]; then
+		if [ "$accel" = "hvf" ]; then
+			qemu_args+=(-machine virt -cpu host)
+		else
+			qemu_args+=(-machine virt -cpu max)
+		fi
+
+		local efi_code=""
+		local p
+		for p in \
+			/opt/homebrew/share/qemu/edk2-aarch64-code.fd \
+			/usr/local/share/qemu/edk2-aarch64-code.fd \
+			/usr/share/qemu-efi-aarch64/QEMU_EFI.fd \
+			/usr/share/AAVMF/AAVMF_CODE.fd; do
+			[ -f "$p" ] && efi_code="$p" && break
+		done
+
+		if [ -z "$efi_code" ]; then
+			die "aarch64 EFI firmware not found (macos: brew install qemu, linux: apt install qemu-efi-aarch64)"
+		fi
+		qemu_args+=(-bios "$efi_code")
+	fi
+
+	# seed ISO
+	if [ -n "$seed_iso" ]; then
+		qemu_args+=(-drive "file=$seed_iso,format=raw,media=cdrom,readonly=on")
+	fi
+
+	local fs_id=0 mount_path name tag
+	for mount_path in "${mounts[@]}"; do
+		mount_path=$(realpath "$mount_path")
+		name=$(basename "$mount_path")
+		# 9p tags limited to 31 chars: 2 (prefix) + 29 (name)
+		tag="m_${name:0:29}"
+		qemu_args+=(
+			-virtfs "local,path=$mount_path,mount_tag=$tag,security_model=none,id=fs${fs_id}"
+		)
+		fs_id=$((fs_id + 1))
+	done
+
+	if [ "$claude" = true ]; then
+		local claude_dir="${CLAUDE_CONFIG_DIR:-}"
+		if [ -z "$claude_dir" ] || [ ! -d "$claude_dir" ]; then
+			local fallback="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/claude"
+			mkdir -p "$fallback"
+			claude_dir="$fallback"
+			warn "CLAUDE_CONFIG_DIR not set or missing, using $fallback"
+			info "  run 'claude login' inside the VM to authenticate"
+		fi
+		claude_dir=$(realpath "$claude_dir")
+
+		qemu_args+=(
+			-virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${fs_id}"
+		)
+		fs_id=$((fs_id + 1))
+	fi
+
+	info "---"
+	info "Guest: $guest_arch | Accel: $accel | Display: $([ "$gui" = "true" ] && echo "gui" || echo "headless")"
+	info "SSH: ssh -p $ssh_port sandbox@localhost"
+	info "---"
+
+	exec "${qemu_args[@]}"
 }
-trap cleanup EXIT
 
-# build qemu command
-QEMU_ARGS=(
-  "$QEMU_BIN"
-  -accel "$ACCEL"
-  -m "$MEMORY"
-  -smp "$CPUS"
-  -drive "$DRIVE_ARG"
-  -nic "user,hostfwd=tcp::${SSH_PORT}-:22"
-)
-
-# display mode
-if [ "$GUI" = "true" ]; then
-  if [ "$GUEST_ARCH" = "aarch64" ]; then
-    QEMU_ARGS+=(-device virtio-gpu-pci -device usb-ehci -device usb-kbd -device usb-mouse)
-  else
-    QEMU_ARGS+=(-device virtio-vga)
-  fi
-else
-  QEMU_ARGS+=(-nographic)
-fi
-
-# x86_64 with hardware accel — pass through host CPU features (AVX, etc.)
-if [ "$GUEST_ARCH" = "x86_64" ] && [ "$ACCEL" != "tcg" ]; then
-  QEMU_ARGS+=(-cpu host)
-fi
-
-# aarch64 guest needs machine type and uefi firmware
-if [ "$GUEST_ARCH" = "aarch64" ]; then
-  if [ "$ACCEL" = "hvf" ]; then
-    QEMU_ARGS+=(-machine virt -cpu host)
-  else
-    QEMU_ARGS+=(-machine virt -cpu max)
-  fi
-
-  EFI_CODE=""
-  for p in \
-    /opt/homebrew/share/qemu/edk2-aarch64-code.fd \
-    /usr/local/share/qemu/edk2-aarch64-code.fd \
-    /usr/share/qemu-efi-aarch64/QEMU_EFI.fd \
-    /usr/share/AAVMF/AAVMF_CODE.fd; do
-    [ -f "$p" ] && EFI_CODE="$p" && break
-  done
-
-  if [ -z "$EFI_CODE" ]; then
-    echo "error: aarch64 EFI firmware not found"
-    echo "  macos: brew install qemu"
-    echo "  linux: apt install qemu-efi-aarch64"
-    exit 1
-  fi
-  QEMU_ARGS+=(-bios "$EFI_CODE")
-fi
-
-# seed ISO
-if [ -n "$SEED_ISO" ]; then
-  QEMU_ARGS+=(-drive "file=$SEED_ISO,format=raw,media=cdrom,readonly=on")
-fi
-
-FS_ID=0
-for mount_path in "${MOUNTS[@]}"; do
-  mount_path=$(realpath "$mount_path")
-  name=$(basename "$mount_path")
-  # 9p tags limited to 31 chars: 2 (prefix) + 29 (name)
-  tag="m_${name:0:29}"
-  QEMU_ARGS+=(
-    -virtfs "local,path=$mount_path,mount_tag=$tag,security_model=none,id=fs${FS_ID}"
-  )
-  FS_ID=$((FS_ID + 1))
-done
-
-if [ "$CLAUDE" = true ]; then
-  claude_dir="${CLAUDE_CONFIG_DIR:-}"
-  if [ -z "$claude_dir" ] || [ ! -d "$claude_dir" ]; then
-    fallback="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/claude"
-    mkdir -p "$fallback"
-    claude_dir="$fallback"
-    echo "note: CLAUDE_CONFIG_DIR not set or missing, using $fallback"
-    echo "  run 'claude login' inside the VM to authenticate"
-  fi
-  claude_dir=$(realpath "$claude_dir")
-
-  QEMU_ARGS+=(
-    -virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${FS_ID}"
-  )
-  FS_ID=$((FS_ID + 1))
-fi
-
-echo "---"
-echo "Guest: $GUEST_ARCH | Accel: $ACCEL | Display: $([ "$GUI" = "true" ] && echo "gui" || echo "headless")"
-echo "SSH: ssh -p $SSH_PORT sandbox@localhost"
-echo "---"
-
-exec "${QEMU_ARGS[@]}"
+main "$@"

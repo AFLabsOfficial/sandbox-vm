@@ -1,42 +1,55 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# shellcheck source=lib.sh
+source "$SCRIPT_DIR/lib.sh"
+setup_colors
+
+WORK_DIR=""
+cleanup() {
+	[ -n "$WORK_DIR" ] && rm -rf "$WORK_DIR"
+	return 0
+}
+trap cleanup EXIT
+
 usage() {
-  echo "Usage: make-seed.sh <output.iso> <pubkey-file>..."
-  echo "Creates a seed ISO with the given SSH public keys."
-  exit 1
+	echo "Usage: make-seed.sh <output.iso> <pubkey-file>..."
+	echo "Creates a seed ISO with the given SSH public keys."
+	exit "${1:-0}"
 }
 
-[ "${1:-}" ] || usage
-[ "${2:-}" ] || usage
+main() {
+	case "${1:-}" in
+	-h | --help) usage ;;
+	"") usage 1 ;;
+	esac
+	[ "${2:-}" ] || usage 1
 
-OUTPUT="$1"
-shift
+	local output="$1"
+	shift
 
-TMPDIR=$(mktemp -d)
-trap 'rm -rf "$TMPDIR"' EXIT
+	WORK_DIR=$(mktemp -d)
 
-: > "$TMPDIR/authorized_keys"
-for PUBKEY_FILE in "$@"; do
-  if [ ! -f "$PUBKEY_FILE" ]; then
-    echo "error: public key file not found: $PUBKEY_FILE"
-    exit 1
-  fi
-  cat "$PUBKEY_FILE" >> "$TMPDIR/authorized_keys"
-done
+	: >"$WORK_DIR/authorized_keys"
+	local pubkey_file
+	for pubkey_file in "$@"; do
+		[ -f "$pubkey_file" ] || die "public key file not found: $pubkey_file"
+		cat "$pubkey_file" >>"$WORK_DIR/authorized_keys"
+	done
 
-if command -v mkisofs >/dev/null 2>&1; then
-  ISO_CMD="mkisofs"
-elif command -v genisoimage >/dev/null 2>&1; then
-  ISO_CMD="genisoimage"
-else
-  echo "error: mkisofs or genisoimage required"
-  echo "  linux:  sudo apt install genisoimage"
-  echo "  macos:  brew install cdrtools"
-  echo "  nix:    nix shell nixpkgs#cdrtools"
-  exit 1
-fi
+	local iso_cmd=""
+	if command -v mkisofs &>/dev/null; then
+		iso_cmd="mkisofs"
+	elif command -v genisoimage &>/dev/null; then
+		iso_cmd="genisoimage"
+	else
+		die "mkisofs or genisoimage required (linux: apt install genisoimage, macos: brew install cdrtools, nix: nix shell nixpkgs#cdrtools)"
+	fi
 
-"$ISO_CMD" -quiet -V SEEDCONFIG -J -R -o "$OUTPUT" "$TMPDIR"
+	"$iso_cmd" -quiet -V SEEDCONFIG -J -R -o "$output" "$WORK_DIR"
+	info "seed ISO created: $output"
+}
 
-echo "seed ISO created: $OUTPUT"
+main "$@"
