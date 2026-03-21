@@ -67,6 +67,7 @@ just ssh 2222 -L 8080:localhost:8080  # port forward
   --mount <path>         Mount host directory into VM (repeatable)
   --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
   --arch <arch>          Guest architecture (default: host arch)
+  --disk-size <size>     Resize guest disk (e.g. 50G)
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
   --ssh-port <port>      SSH port forward (default: 2222)
@@ -115,6 +116,16 @@ nix profile add nixpkgs#nodejs nixpkgs#pnpm
 
 Packages persist across terminal sessions until the VM shuts down.
 Use `nix search nixpkgs <name>` to find packages.
+
+The default image includes 30G of disk space. For heavier toolchains, pass
+`--disk-size` to grow the guest disk at launch:
+
+```sh
+just run-headless --disk-size 50G --ssh-key ~/.ssh/id_ed25519.pub --claude
+```
+
+This creates a temporary overlay — the cached image is not modified and the
+extra space costs nothing on the host until the guest actually writes to it.
 
 ### Common language stacks
 

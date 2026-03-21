@@ -14,6 +14,7 @@ SEED_ISO=""
 IMAGE=""
 GUEST_ARCH=""
 GUI=""
+DISK_SIZE=""
 
 usage() {
   cat <<EOF
@@ -27,6 +28,7 @@ Options:
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
   --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
+  --disk-size <size>     Resize guest disk (e.g. 50G, default: image built-in size)
   --memory <size>        VM memory (default: 8G)
   --cpus <n>             VM CPUs (default: 4)
   --ssh-port <port>      SSH port forward (default: 2222)
@@ -48,6 +50,7 @@ while [ $# -gt 0 ]; do
     --seed-iso)   SEED_ISO="$2"; shift 2 ;;
     --mount)       MOUNTS+=("$2"); shift 2 ;;
     --claude)      CLAUDE=true; shift ;;
+    --disk-size)   DISK_SIZE="$2"; shift 2 ;;
     --memory)      MEMORY="$2"; shift 2 ;;
     --cpus)       CPUS="$2"; shift 2 ;;
     --ssh-port)   SSH_PORT="$2"; shift 2 ;;
@@ -107,8 +110,20 @@ if [ "${#SSH_KEYS[@]}" -gt 0 ] && [ -z "$SEED_ISO" ]; then
   bash "$SCRIPT_DIR/make-seed.sh" "$SEED_ISO" "${SSH_KEYS[@]}"
 fi
 
+# create resized overlay when --disk-size is given
+CLEANUP_OVERLAY=""
+if [ -n "$DISK_SIZE" ]; then
+  CLEANUP_OVERLAY=$(mktemp -d)
+  OVERLAY="$CLEANUP_OVERLAY/overlay.qcow2"
+  qemu-img create -f qcow2 -b "$(realpath "$IMAGE")" -F qcow2 "$OVERLAY" "$DISK_SIZE"
+  DRIVE_ARG="file=$OVERLAY,format=qcow2"
+else
+  DRIVE_ARG="file=$IMAGE,format=qcow2,snapshot=on"
+fi
+
 cleanup() {
   [ -n "$CLEANUP_SEED" ] && rm -rf "$(dirname "$CLEANUP_SEED")"
+  [ -n "$CLEANUP_OVERLAY" ] && rm -rf "$CLEANUP_OVERLAY"
 }
 trap cleanup EXIT
 
@@ -118,7 +133,7 @@ QEMU_ARGS=(
   -accel "$ACCEL"
   -m "$MEMORY"
   -smp "$CPUS"
-  -drive "file=$IMAGE,format=qcow2,snapshot=on"
+  -drive "$DRIVE_ARG"
   -nic "user,hostfwd=tcp::${SSH_PORT}-:22"
 )
 

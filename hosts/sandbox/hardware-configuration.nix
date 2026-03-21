@@ -9,6 +9,8 @@
     (modulesPath + "/profiles/qemu-guest.nix")
   ];
 
+  virtualisation.diskSize = 30720; # 30G
+
   fileSystems."/" = {
     device = "/dev/disk/by-label/nixos";
     autoResize = true;
