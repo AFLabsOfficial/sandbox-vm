@@ -1,0 +1,7 @@
+*
+!flake.nix
+!flake.lock
+!nix.nix
+!hosts/
+!modules/
+!users/

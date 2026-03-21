@@ -160,19 +160,16 @@ just run-image-gui ./sandbox-gui-x86_64-v0.1.0.qcow2 --mount ~/projects
 
 ## Building from source
 
-Requires [nix](https://nixos.org/download/). Works on NixOS, any Linux with
-nix, macOS (with a remote Linux builder), or inside Docker.
-
 ```sh
-just build-headless x86_64        # or aarch64
-just build-gui x86_64
-
-# or directly with nix
-nix build .#packages.x86_64-linux.sandbox-headless
-nix build .#packages.aarch64-linux.sandbox-gui
+just build --headless                  # headless, host arch, requires nix
+just build --gui                       # gui variant
+just build --headless --arch aarch64   # cross-build
+just build --headless --docker         # via docker (Linux only, no nix required)
+just build --headless --sign           # sign the image after building
 ```
 
-Built images are GPG-signed and placed in `dist/`.
+Built images are placed in `dist/`. The `--docker` path requires Linux with
+KVM (`/dev/kvm`) and does not work on macOS.
 
 ## Contributing
 
