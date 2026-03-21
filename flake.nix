@@ -22,7 +22,7 @@
     }:
 
     let
-      version = "v0.1.1";
+      version = "v0.2.0";
 
       systems = [
         "x86_64-linux"
