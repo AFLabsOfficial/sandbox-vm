@@ -28,6 +28,7 @@ Options:
   --arch <arch>        x86_64 or aarch64 (default: auto-detect host)
   --version <ver>      Specific version e.g. "v0.1.0" (default: latest)
   --list               List available versions for variant+arch
+  --no-pull            Use latest cached image (no network)
   --cache-dir <path>   Override cache directory
   --force              Force re-download even if cached
   -h, --help           Show usage
@@ -78,7 +79,7 @@ verify_hash() {
 
 main() {
 	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/sandbox-vm"
-	local arch="" version="" list=false force=false variant=""
+	local arch="" version="" list=false force=false no_pull=false variant=""
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -92,6 +93,10 @@ main() {
 			;;
 		--list)
 			list=true
+			shift
+			;;
+		--no-pull)
+			no_pull=true
 			shift
 			;;
 		--cache-dir)
@@ -139,6 +144,19 @@ main() {
 	fi
 
 	mkdir -p "$cache_dir"
+
+	# no-pull mode: use latest cached image
+	if [ "$no_pull" = true ]; then
+		local cached
+		cached=$(find "$cache_dir" -maxdepth 1 -name "*.qcow2" |
+			xargs -r -n1 basename |
+			grep -E "$image_re" |
+			sort -V | tail -1)
+		[ -n "$cached" ] || die "no cached image found for ${variant}/${arch}"
+		info "cached: $cached"
+		echo "$cache_dir/$cached"
+		return 0
+	fi
 
 	# resolve filename from directory listing
 	local listing filename

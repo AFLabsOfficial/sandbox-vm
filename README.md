@@ -66,6 +66,7 @@ just ssh 2222 -L 8080:localhost:8080  # port forward
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
   --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
+  --no-pull              Use latest cached image instead of downloading
   --arch <arch>          Guest architecture (default: host arch)
   --disk-size <size>     Resize guest disk (e.g. 50G)
   --memory <size>        VM memory (default: 8G)
@@ -154,8 +155,8 @@ Downloaded images are cached in `~/.cache/sandbox-vm/` (or
 To run a local image directly:
 
 ```sh
-just run-image-headless ./sandbox-headless-x86_64-v0.1.0.qcow2 --ssh-key ~/.ssh/id_ed25519.pub
-just run-image-gui ./sandbox-gui-x86_64-v0.1.0.qcow2 --mount ~/projects
+just run-headless ./sandbox-headless-x86_64-v0.1.0.qcow2 --ssh-key ~/.ssh/id_ed25519.pub
+just run-gui ./sandbox-gui-x86_64-v0.1.0.qcow2 --mount ~/projects
 ```
 
 ## Building from source

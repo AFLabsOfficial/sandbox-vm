@@ -14,21 +14,13 @@ sign image:
 clean:
     rm -rf dist/ result result-*
 
-# pull latest headless image and run
+# pull latest headless image and run (--no-pull to use cached)
 run-headless *ARGS:
-    bash scripts/run.sh "$(bash scripts/pull.sh headless)" {{ARGS}}
+    bash scripts/run.sh --headless {{ARGS}}
 
-# pull latest GUI image and run
+# pull latest GUI image and run (--no-pull to use cached)
 run-gui *ARGS:
-    bash scripts/run.sh "$(bash scripts/pull.sh gui)" {{ARGS}}
-
-# run a local headless image
-run-image-headless image *ARGS:
-    bash scripts/run.sh {{image}} --headless {{ARGS}}
-
-# run a local GUI image
-run-image-gui image *ARGS:
-    bash scripts/run.sh {{image}} --gui {{ARGS}}
+    bash scripts/run.sh --gui {{ARGS}}
 
 # pull latest (or specific) VM image
 pull variant *ARGS:

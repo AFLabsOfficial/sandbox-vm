@@ -20,12 +20,15 @@ trap cleanup EXIT
 
 usage() {
 	cat <<EOF
-Usage: run.sh <image.qcow2> [options]
+Usage: run.sh [image.qcow2] [options]
+
+If no image is given, one is pulled automatically based on --gui/--headless.
 
 Options:
   --arch <arch>          Guest architecture (auto-detected from image name)
   --gui                  Force graphical display
   --headless             Force headless mode
+  --no-pull              Use latest cached image instead of downloading
   --ssh-key <key.pub>    SSH public key (repeatable, auto-generates seed ISO)
   --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
@@ -40,16 +43,9 @@ EOF
 }
 
 main() {
-	local ssh_port=2222 memory=8G cpus=4 claude=false
+	local ssh_port=2222 memory=8G cpus=4 claude=false no_pull=false
 	local seed_iso="" image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=() ssh_keys=()
-
-	case "${1:-}" in
-	-h | --help) usage ;;
-	"") usage 1 ;;
-	esac
-	image="$1"
-	shift
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -63,6 +59,10 @@ main() {
 			;;
 		--headless)
 			gui=false
+			shift
+			;;
+		--no-pull)
+			no_pull=true
 			shift
 			;;
 		--ssh-key)
@@ -98,12 +98,34 @@ main() {
 			shift 2
 			;;
 		-h | --help) usage ;;
-		*)
+		-*)
 			echo "${red}error:${reset} unknown option: $1" >&2
 			usage 1
 			;;
+		*)
+			if [ -z "$image" ]; then
+				image="$1"
+				shift
+			else
+				echo "${red}error:${reset} unexpected argument: $1" >&2
+				usage 1
+			fi
+			;;
 		esac
 	done
+
+	# auto-pull if no image provided
+	if [ -z "$image" ]; then
+		local variant
+		case "$gui" in
+		true) variant="gui" ;;
+		false) variant="headless" ;;
+		"") variant="headless"; gui=false ;;
+		esac
+		local -a pull_args=()
+		[ "$no_pull" = true ] && pull_args+=("--no-pull")
+		image=$(bash "$SCRIPT_DIR/pull.sh" "${pull_args[@]}" "$variant")
+	fi
 
 	[ -f "$image" ] || die "image not found: $image"
 
