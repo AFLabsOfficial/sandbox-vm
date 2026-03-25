@@ -8,7 +8,7 @@ Everything resets on shutdown.
 
 | | Headless | GUI |
 |---|---|---|
-| **Access** | SSH into the VM | Full Budgie desktop in a window |
+| **Access** | SSH into the VM | Full GNOME desktop in a window |
 | **Best for** | Terminal-comfortable developers | Visual workflows, less CLI experience |
 | **Login** | SSH key authentication | Auto-login, no passwords |
 

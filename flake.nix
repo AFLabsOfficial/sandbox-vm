@@ -9,6 +9,11 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
+    stylix = {
+      url = "github:nix-community/stylix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
     nixpkgs-master = {
       url = "github:nixos/nixpkgs/master";
       flake = false;
@@ -61,12 +66,16 @@
             ./modules/nixos/seed-ssh.nix
             ./modules/nixos/localisation.nix
             ./modules/nixos/desktop.nix
+            ./modules/nixos/theme.nix
+
+            inputs.stylix.nixosModules.stylix
 
             inputs.home-manager.nixosModules.home-manager
             {
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
               home-manager.backupFileExtension = "backup";
+              home-manager.extraSpecialArgs = { inherit gui; };
               home-manager.users.sandbox = import ./users/sandbox/home-manager.nix;
             }
           ]

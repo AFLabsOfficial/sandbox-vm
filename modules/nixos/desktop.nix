@@ -15,10 +15,9 @@
   };
 
   config = lib.mkIf config.desktop.enable {
-    services.xserver.enable = true;
-    services.desktopManager.budgie.enable = true;
-    services.xserver.displayManager.lightdm.enable = true;
-    services.displayManager.defaultSession = "budgie-desktop";
+    services.desktopManager.gnome.enable = true;
+    services.displayManager.gdm.enable = true;
+    services.displayManager.gdm.autoSuspend = false;
 
     services.displayManager.autoLogin = lib.mkIf (config.desktop.autoLogin != null) {
       enable = true;
@@ -31,27 +30,35 @@
       pulse.enable = true;
     };
 
-    # trim unused budgie default packages
-    environment.budgie.excludePackages = with pkgs; [
-      vlc
-      gammastep
-      grim
-      slurp
-      swaybg
-      swayidle
-      wdisplays
-      wlopm
+    # trim packages not needed in a VM sandbox
+    environment.gnome.excludePackages = with pkgs; [
+      epiphany
+      gnome-calendar
+      gnome-characters
+      gnome-clocks
+      gnome-contacts
+      gnome-font-viewer
+      gnome-logs
+      gnome-maps
+      gnome-music
+      gnome-weather
+      gnome-connections
+      simple-scan
+      snapshot
+      yelp
+      gnome-tour
+      gnome-user-docs
     ];
 
     # disable services not needed in a VM sandbox
     services.printing.enable = lib.mkForce false;
     services.gnome.evolution-data-server.enable = lib.mkForce false;
-    services.gnome.gnome-online-accounts.enable = lib.mkForce false;
-    services.dleyna.enable = lib.mkForce false;
-    services.gnome.rygel.enable = lib.mkForce false;
-    services.gnome.gnome-user-share.enable = lib.mkForce false;
-    services.geoclue2.enable = lib.mkForce false;
-    hardware.bluetooth.enable = lib.mkForce false;
+    services.gnome.gnome-online-accounts.enable = false;
+    services.dleyna.enable = false;
+    services.gnome.rygel.enable = false;
+    services.gnome.gnome-user-share.enable = false;
+    services.geoclue2.enable = false;
+    hardware.bluetooth.enable = false;
 
     # use lighter font set instead of noto-fonts
     fonts.enableDefaultPackages = false;

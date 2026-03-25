@@ -166,8 +166,15 @@ main() {
 		-m "$memory"
 		-smp "$cpus"
 		-drive "$drive_arg"
-		-nic "user,hostfwd=tcp::${ssh_port}-:22"
 	)
+
+	local ssh_forward=false
+	if [ "$gui" = "true" ]; then
+		qemu_args+=(-nic user)
+	else
+		qemu_args+=(-nic "user,hostfwd=tcp::${ssh_port}-:22")
+		ssh_forward=true
+	fi
 
 	# display mode
 	if [ "$gui" = "true" ]; then
@@ -245,7 +252,7 @@ main() {
 
 	info "---"
 	info "Guest: $guest_arch | Accel: $accel | Display: $([ "$gui" = "true" ] && echo "gui" || echo "headless")"
-	info "SSH: ssh -p $ssh_port sandbox@localhost"
+	[ "$ssh_forward" = "true" ] && info "SSH: ssh -p $ssh_port sandbox@localhost"
 	info "---"
 
 	exec "${qemu_args[@]}"
