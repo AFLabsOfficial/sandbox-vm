@@ -8,19 +8,13 @@ source "$SCRIPT_DIR/lib.sh"
 setup_colors
 
 usage() {
-	echo "Usage: sign.sh <image.qcow2>"
+	echo "Usage: sign.sh <image.qcow2>..."
 	exit "${1:-0}"
 }
 
-main() {
-	case "${1:-}" in
-	-h | --help) usage ;;
-	"") usage 1 ;;
-	esac
-
+sign_image() {
 	local image="$1"
 	[ -f "$image" ] || die "file not found: $image"
-	require_cmd gpg
 
 	local name base dir hash
 	name="$(basename "$image")"
@@ -32,6 +26,19 @@ main() {
 	echo "${bold}sha256:${reset} $hash" >&2
 	echo "$hash  $name" >"$dir/$base.sha256"
 	gpg --detach-sign --armor "$dir/$base.sha256"
+}
+
+main() {
+	case "${1:-}" in
+	-h | --help) usage ;;
+	"") usage 1 ;;
+	esac
+
+	require_cmd gpg
+
+	for image in "$@"; do
+		sign_image "$image"
+	done
 }
 
 main "$@"

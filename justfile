@@ -6,9 +6,9 @@ default:
 build *ARGS:
     bash scripts/build.sh {{ARGS}}
 
-# sign a built image (sha256 + GPG)
-sign image:
-    bash scripts/sign.sh {{image}}
+# sign built images (sha256 + GPG)
+sign +images:
+    bash scripts/sign.sh {{images}}
 
 # remove build artifacts
 clean:
