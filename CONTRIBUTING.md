@@ -5,7 +5,7 @@
 Requires nix with flakes enabled.
 
 ```sh
-# enter dev shell (provides pre-commit, statix, qemu, cdrtools)
+# enter dev shell (provides pre-commit, statix, qemu)
 nix develop
 
 # or with direnv

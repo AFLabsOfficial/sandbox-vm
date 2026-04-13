@@ -8,9 +8,9 @@ Everything resets on shutdown.
 
 | | Headless | GUI |
 |---|---|---|
-| **Access** | SSH into the VM | Full GNOME desktop in a window |
+| **Access** | Auto-connects via SSH | Full GNOME desktop in a window |
 | **Best for** | Terminal-comfortable developers | Visual workflows, less CLI experience |
-| **Login** | SSH key authentication | Auto-login, no passwords |
+| **Login** | Automatic (any SSH key accepted) | Auto-login, no passwords |
 
 **What's included:** Claude Code, git, docker, tmux, ripgrep, and more.
 Mount your projects from the host, authenticate once, and you're ready to go.
@@ -20,16 +20,16 @@ Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
 **macOS**
 ```sh
-brew install just qemu cdrtools curl
+brew install just qemu curl
 ```
 
 **Debian / Ubuntu**
 ```sh
 # x86_64 hosts
-sudo apt install just qemu-system-x86 qemu-kvm genisoimage curl -y
+sudo apt install just qemu-system-x86 qemu-kvm curl -y
 
 # aarch64 hosts
-sudo apt install just qemu-system-arm qemu-efi-aarch64 genisoimage curl -y
+sudo apt install just qemu-system-arm qemu-efi-aarch64 curl -y
 ```
 
 Images are built for **x86_64** (Intel/AMD) and **aarch64** (Apple Silicon,
@@ -42,19 +42,20 @@ too but runs under emulation (much slower).
 Pulls the latest image and launches it:
 
 ```sh
-# headless (generate a key first with ssh-keygen -t ed25519 if needed)
-just run-headless --ssh-key ~/.ssh/id_ed25519.pub --claude --mount /path/to/project
-just ssh  # from a different terminal
+# headless (auto-connects via ssh)
+just run-headless --mount /path/to/project
 
 # gui
-just run-gui --claude --mount /path/to/project
+just run-gui --mount /path/to/project
 ```
 
 ## SSH
 
+Headless mode automatically connects via SSH. To open additional sessions:
+
 ```sh
-just ssh                              # default port 2222
-just ssh 2222 -L 8080:localhost:8080  # port forward
+just ssh                                # default port 22022
+just ssh 22022 -L 8080:localhost:8080   # port forward
 ```
 
 > **Note:** The `sandbox` user has password `sandbox` as a fallback for debugging.
@@ -62,16 +63,14 @@ just ssh 2222 -L 8080:localhost:8080  # port forward
 ## Run options
 
 ```
-  --ssh-key <key.pub>    SSH public key (repeatable)
-  --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
-  --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
+  --no-claude            Skip mounting claude config dir
   --no-pull              Use latest cached image instead of downloading
   --arch <arch>          Guest architecture (default: host arch)
   --disk-size <size>     Resize guest disk (e.g. 50G)
-  --memory <size>        VM memory (default: 8G)
-  --cpus <n>             VM CPUs (default: 4)
-  --ssh-port <port>      SSH port forward (default: 2222)
+  --memory <size>        VM memory (default: 4G)
+  --cpus <n>             VM CPUs (default: 2)
+  --ssh-port <port>      SSH port forward (default: auto from 22022)
 ```
 
 ### Mounting projects
@@ -92,9 +91,10 @@ Inside the VM:
 
 ### Claude Code
 
-Pass `--claude` to mount your claude config dir writable into the VM. Uses
+Claude config is mounted by default into the VM (writable). Uses
 `CLAUDE_CONFIG_DIR` if set, otherwise falls back to `~/.config/sandbox-vm/claude`.
 Claude Code is pre-installed and will pick up your auth automatically.
+Pass `--no-claude` to skip mounting.
 
 This repo includes a `/sandbox-vm` skill for Claude Code. To make it available
 globally, copy it to your personal skills directory:
@@ -122,7 +122,7 @@ The default image includes 30G of disk space. For heavier toolchains, pass
 `--disk-size` to grow the guest disk at launch:
 
 ```sh
-just run-headless --disk-size 50G --ssh-key ~/.ssh/id_ed25519.pub --claude
+just run-headless --disk-size 50G
 ```
 
 This creates a temporary overlay — the cached image is not modified and the
@@ -155,7 +155,7 @@ Downloaded images are cached in `~/.cache/sandbox-vm/` (or
 To run a local image directly:
 
 ```sh
-just run-headless ./sandbox-headless-x86_64-v0.1.0.qcow2 --ssh-key ~/.ssh/id_ed25519.pub
+just run-headless ./sandbox-headless-x86_64-v0.1.0.qcow2
 just run-gui ./sandbox-gui-x86_64-v0.1.0.qcow2 --mount ~/projects
 ```
 

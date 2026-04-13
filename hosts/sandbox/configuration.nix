@@ -19,11 +19,6 @@
     headless = true;
   };
 
-  seed-ssh = {
-    enable = true;
-    user = "sandbox";
-  };
-
   localisation = {
     enable = true;
     timeZone = "UTC";
@@ -33,11 +28,14 @@
   users.users.sandbox = {
     isNormalUser = true;
     initialPassword = "sandbox";
+    shell = pkgs.zsh;
     extraGroups = [
       "wheel"
       "docker"
     ];
   };
+
+  programs.zsh.enable = true;
 
   vm-9p-automount = {
     enable = true;
@@ -79,6 +77,21 @@
   };
 
   environment.sessionVariables.CLAUDE_CONFIG_DIR = "/home/sandbox/.config/claude";
+
+  # accept any ssh key (ephemeral localhost-only vm)
+  # script lives under /etc/ssh so sshd's parent-directory ownership check passes
+  # (/nix/store is group-writable for nixbld, which sshd rejects)
+  environment.etc."ssh/accept-key" = {
+    mode = "0755";
+    text = ''
+      #!/bin/sh
+      echo "$1 $2"
+    '';
+  };
+  services.openssh.extraConfig = ''
+    AuthorizedKeysCommand /etc/ssh/accept-key %t %k
+    AuthorizedKeysCommandUser nobody
+  '';
 
   # no hardware firmware needed in a VM
   hardware.enableRedistributableFirmware = lib.mkForce false;

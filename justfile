@@ -31,5 +31,5 @@ list-images variant="headless":
     bash scripts/pull.sh --list {{variant}}
 
 # ssh into running sandbox
-ssh port="2222" *ARGS:
+ssh port="22022" *ARGS:
     ssh -p {{port}} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ARGS}} sandbox@localhost
