@@ -49,6 +49,20 @@ just run-headless --mount /path/to/project
 just run-gui --mount /path/to/project
 ```
 
+### Alias
+
+Add an alias to run from anywhere:
+
+```sh
+alias sandbox-vm="/path/to/sandbox-vm.nix/scripts/run.sh --headless"
+```
+
+Then from any project directory:
+
+```sh
+sandbox-vm --mount .
+```
+
 ## SSH
 
 Headless mode automatically connects via SSH. To open additional sessions:
