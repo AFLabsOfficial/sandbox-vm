@@ -63,7 +63,6 @@
             ./hosts/sandbox/configuration.nix
             ./modules/nixos/vm-guest.nix
             ./modules/nixos/vm-9p-automount.nix
-            ./modules/nixos/seed-ssh.nix
             ./modules/nixos/localisation.nix
             ./modules/nixos/desktop.nix
             ./modules/nixos/theme.nix
@@ -86,7 +85,6 @@
                 enable = true;
                 autoLogin = "sandbox";
               };
-              seed-ssh.enable = nixpkgs.lib.mkForce false;
             }
           ];
           specialArgs = {
@@ -135,7 +133,6 @@
             shellcheck
             shfmt
             qemu
-            cdrtools
           ];
         };
       });

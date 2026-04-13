@@ -8,12 +8,14 @@ source "$SCRIPT_DIR/lib.sh"
 setup_colors
 
 # globals for cleanup trap
-CLEANUP_SEED=""
+QEMU_PID=""
 CLEANUP_OVERLAY=""
+CLEANUP_TMPDIR=""
 
 cleanup() {
-	[ -n "$CLEANUP_SEED" ] && rm -rf "$(dirname "$CLEANUP_SEED")"
+	[ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null && wait "$QEMU_PID" 2>/dev/null
 	[ -n "$CLEANUP_OVERLAY" ] && rm -rf "$CLEANUP_OVERLAY"
+	[ -n "$CLEANUP_TMPDIR" ] && rm -rf "$CLEANUP_TMPDIR"
 	return 0
 }
 trap cleanup EXIT
@@ -29,23 +31,21 @@ Options:
   --gui                  Force graphical display
   --headless             Force headless mode
   --no-pull              Use latest cached image instead of downloading
-  --ssh-key <key.pub>    SSH public key (repeatable, auto-generates seed ISO)
-  --seed-iso <iso>       Pre-built seed ISO (alternative to --ssh-key)
   --mount <path>         Mount host directory into VM (repeatable)
-  --claude               Mount claude config dir (uses CLAUDE_CONFIG_DIR or ~/.config/sandbox-vm/claude)
+  --no-claude            Skip mounting claude config dir
   --disk-size <size>     Resize guest disk (e.g. 50G, default: image built-in size)
-  --memory <size>        VM memory (default: 8G)
-  --cpus <n>             VM CPUs (default: 4)
-  --ssh-port <port>      SSH port forward (default: 2222)
+  --memory <size>        VM memory (default: 4G)
+  --cpus <n>             VM CPUs (default: 2)
+  --ssh-port <port>      SSH port forward (default: auto from 22022)
   -h, --help             Show usage
 EOF
 	exit "${1:-0}"
 }
 
 main() {
-	local ssh_port=2222 memory=8G cpus=4 claude=false no_pull=false
-	local seed_iso="" image="" guest_arch="" gui="" disk_size=""
-	local -a mounts=() ssh_keys=()
+	local ssh_port="" memory=4G cpus=2 claude=true no_pull=false
+	local image="" guest_arch="" gui="" disk_size=""
+	local -a mounts=()
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -65,20 +65,12 @@ main() {
 			no_pull=true
 			shift
 			;;
-		--ssh-key)
-			ssh_keys+=("$2")
-			shift 2
-			;;
-		--seed-iso)
-			seed_iso="$2"
-			shift 2
-			;;
 		--mount)
 			mounts+=("$2")
 			shift 2
 			;;
-		--claude)
-			claude=true
+		--no-claude)
+			claude=false
 			shift
 			;;
 		--disk-size)
@@ -163,13 +155,6 @@ main() {
 	aarch64) qemu_bin="qemu-system-aarch64" ;;
 	esac
 
-	# auto-generate seed ISO from SSH keys
-	if [ "${#ssh_keys[@]}" -gt 0 ] && [ -z "$seed_iso" ]; then
-		seed_iso="$(mktemp -d)/seed.iso"
-		CLEANUP_SEED="$seed_iso"
-		bash "$SCRIPT_DIR/make-seed.sh" "$seed_iso" "${ssh_keys[@]}"
-	fi
-
 	# create resized overlay when --disk-size is given
 	local drive_arg
 	if [ -n "$disk_size" ]; then
@@ -181,6 +166,20 @@ main() {
 		drive_arg="file=$image,format=qcow2,snapshot=on"
 	fi
 
+	# auto-allocate ssh port for headless
+	if [ "$gui" != "true" ] && [ -z "$ssh_port" ]; then
+		ssh_port=22022
+		while ss -tln 2>/dev/null | grep -q ":${ssh_port}\b"; do
+			ssh_port=$((ssh_port + 1))
+		done
+	fi
+
+	# build networking arg
+	local nic_arg="user"
+	if [ -n "$ssh_port" ]; then
+		nic_arg="user,hostfwd=tcp::${ssh_port}-:22"
+	fi
+
 	# build qemu command
 	local -a qemu_args=(
 		"$qemu_bin"
@@ -188,15 +187,8 @@ main() {
 		-m "$memory"
 		-smp "$cpus"
 		-drive "$drive_arg"
+		-nic "$nic_arg"
 	)
-
-	local ssh_forward=false
-	if [ "$gui" = "true" ]; then
-		qemu_args+=(-nic user)
-	else
-		qemu_args+=(-nic "user,hostfwd=tcp::${ssh_port}-:22")
-		ssh_forward=true
-	fi
 
 	# display mode
 	if [ "$gui" = "true" ]; then
@@ -238,11 +230,6 @@ main() {
 		qemu_args+=(-bios "$efi_code")
 	fi
 
-	# seed ISO
-	if [ -n "$seed_iso" ]; then
-		qemu_args+=(-drive "file=$seed_iso,format=raw,media=cdrom,readonly=on")
-	fi
-
 	local fs_id=0 mount_path name tag
 	for mount_path in "${mounts[@]}"; do
 		mount_path=$(realpath "$mount_path")
@@ -274,10 +261,37 @@ main() {
 
 	info "---"
 	info "Guest: $guest_arch | Accel: $accel | Display: $([ "$gui" = "true" ] && echo "gui" || echo "headless")"
-	[ "$ssh_forward" = "true" ] && info "SSH: ssh -p $ssh_port sandbox@localhost"
+	[ -n "$ssh_port" ] && info "SSH: ssh -p $ssh_port sandbox@localhost"
 	info "---"
 
-	exec "${qemu_args[@]}"
+	if [ "$gui" = "true" ]; then
+		exec "${qemu_args[@]}"
+	fi
+
+	# headless: start qemu in background and auto-ssh
+	"${qemu_args[@]}" &>/dev/null &
+	QEMU_PID=$!
+
+	# generate throwaway ssh key (vm accepts any key)
+	CLEANUP_TMPDIR=$(mktemp -d)
+	local ssh_key="$CLEANUP_TMPDIR/id_ed25519"
+	ssh-keygen -t ed25519 -f "$ssh_key" -N "" -q
+
+	info "waiting for vm (port $ssh_port)..."
+	local attempts=0
+	while ! (echo > /dev/tcp/localhost/"$ssh_port") 2>/dev/null; do
+		attempts=$((attempts + 1))
+		[ $attempts -gt 60 ] && die "vm did not become ready in 60s"
+		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly"
+		sleep 1
+	done
+
+	ssh -p "$ssh_port" -t \
+		-i "$ssh_key" \
+		-o StrictHostKeyChecking=no \
+		-o UserKnownHostsFile=/dev/null \
+		-o LogLevel=ERROR \
+		sandbox@localhost
 }
 
 main "$@"

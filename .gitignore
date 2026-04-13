@@ -5,6 +5,3 @@ dist/
 
 # Ignore automatically generated direnv output
 .direnv
-
-# Ignore generated seed ISOs
-*.iso
