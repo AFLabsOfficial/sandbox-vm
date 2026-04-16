@@ -50,3 +50,16 @@ sha256_file() {
 require_cmd() {
 	command -v "$1" &>/dev/null || die "$1 not found${2:+ ($2)}"
 }
+
+# cross-platform check whether a TCP port is in use
+port_in_use() {
+	local port="$1"
+	if command -v ss &>/dev/null; then
+		ss -tln 2>/dev/null | grep -q ":${port}\b"
+	elif command -v lsof &>/dev/null; then
+		lsof -iTCP:"$port" -sTCP:LISTEN -P -n &>/dev/null
+	else
+		# fallback: try connecting
+		(echo >/dev/tcp/localhost/"$port") 2>/dev/null
+	fi
+}

@@ -169,7 +169,7 @@ main() {
 	# auto-allocate ssh port for headless
 	if [ "$gui" != "true" ] && [ -z "$ssh_port" ]; then
 		ssh_port=22022
-		while ss -tln 2>/dev/null | grep -q ":${ssh_port}\b"; do
+		while port_in_use "$ssh_port"; do
 			ssh_port=$((ssh_port + 1))
 		done
 	fi
