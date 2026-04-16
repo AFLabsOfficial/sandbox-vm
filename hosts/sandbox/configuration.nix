@@ -117,7 +117,6 @@
     just
   ];
 
-  # image builder VM needs more than the default 1G to copy closure
   image.modules =
     let
       # sandbox-<variant>-<arch>-<version>-<nixos date.hash>
@@ -128,8 +127,9 @@
       hash = builtins.elemAt parts 3;
       variant = if gui then "gui" else "headless";
       name = "sandbox-${variant}-${arch}-${version}-${date}.${hash}";
-
-      imageMemOverride =
+    in
+    let
+      imageOverride =
         { config, modulesPath, ... }:
         {
           image.baseName = name;
@@ -139,16 +139,14 @@
               inherit (config.virtualisation) diskSize;
               inherit (config.image) baseName;
               format = "qcow2-compressed";
-              copyChannel = false;
               partitionTableType = if config.image.efiSupport then "efi" else "legacy";
-              memSize = 16384;
             }
           );
         };
     in
     {
-      qemu = imageMemOverride;
-      qemu-efi = imageMemOverride;
+      qemu = imageOverride;
+      qemu-efi = imageOverride;
     };
 
   system.stateVersion = "25.11";
