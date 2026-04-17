@@ -72,7 +72,8 @@ just ssh                                # default port 22022
 just ssh 22022 -L 8080:localhost:8080   # port forward
 ```
 
-> **Note:** The `sandbox` user has password `sandbox` as a fallback for debugging.
+> **Note:** The `sandbox` user has password `sandbox` for console access (SSH
+> disables password auth).
 
 ## Run options
 
@@ -154,23 +155,28 @@ extra space costs nothing on the host until the guest actually writes to it.
 
 ## Images
 
-Images are hosted at [dl.aflabs.org/iso](https://dl.aflabs.org/iso/) and
-managed with the `pull` and `list-images` commands:
+Images are hosted at [dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
+`just run-headless` / `just run-gui` **auto-pull the latest image** on launch;
+pass `--no-pull` to stay fully offline and use the latest cached image.
+
+For explicit control, use the `pull` and `list-images` commands:
 
 ```sh
 just pull headless                    # download latest
-just pull headless --version v0.1.0   # specific version
+just pull headless --version v0.4.0   # specific version
 just list-images headless             # list available versions
 ```
 
 Downloaded images are cached in `~/.cache/sandbox-vm/` (or
-`$XDG_CACHE_HOME/sandbox-vm/` if set).
+`$XDG_CACHE_HOME/sandbox-vm/` if set). SHA256 checksums are GPG-signed; the
+public keys are in [`KEYS`](KEYS) and `pull` verifies signatures automatically
+when `gpg` is available.
 
 To run a local image directly:
 
 ```sh
-just run-headless ./sandbox-headless-x86_64-v0.1.0.qcow2
-just run-gui ./sandbox-gui-x86_64-v0.1.0.qcow2 --mount ~/projects
+just run-headless ./sandbox-headless-x86_64-v0.4.0.qcow2
+just run-gui ./sandbox-gui-x86_64-v0.4.0.qcow2 --mount ~/projects
 ```
 
 ## Building from source
@@ -184,7 +190,8 @@ just build --headless --sign           # sign the image after building
 ```
 
 Built images are placed in `dist/`. The `--docker` path requires Linux with
-KVM (`/dev/kvm`) and does not work on macOS.
+KVM (`/dev/kvm`) and does not work on macOS. `--docker` cannot cross-build;
+use nix (with a remote builder if needed) to target a different architecture.
 
 ## Contributing
 
