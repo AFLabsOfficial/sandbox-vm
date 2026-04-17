@@ -13,11 +13,6 @@
       url = "github:nix-community/stylix";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    nixpkgs-master = {
-      url = "github:nixos/nixpkgs/master";
-      flake = false;
-    };
   };
 
   outputs =
@@ -37,6 +32,15 @@
       ];
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
+      my-lib = import ./lib { inherit (nixpkgs) lib; };
+
+      pkgsFor = system: import nixpkgs {
+        inherit system;
+        config.allowUnfree = true;
+      };
+
+      packagesFor = system: import ./packages { inherit my-lib; inherit (nixpkgs) lib; } { pkgs = pkgsFor system; };
+
       mkSandbox =
         system:
         {
@@ -46,19 +50,6 @@
           inherit system;
           modules = [
             { nixpkgs.config.allowUnfree = true; }
-            {
-              nixpkgs.overlays = [
-                (_: prev: {
-                  inherit
-                    (import inputs.nixpkgs-master {
-                      inherit (prev.stdenv.hostPlatform) system;
-                      inherit (prev) config;
-                    })
-                    claude-code
-                    ;
-                })
-              ];
-            }
             ./nix.nix
             ./hosts/sandbox/configuration.nix
             ./modules/nixos/vm-guest.nix
@@ -112,16 +103,18 @@
         sandbox-gui-aarch64 = mkSandbox "aarch64-linux" { gui = true; };
       };
 
-      packages = {
-        x86_64-linux = {
+      packages = forAllSystems (
+        system:
+        packagesFor system
+        // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           sandbox-headless = mkImage "x86_64-linux" { } "qemu";
           sandbox-gui = mkImage "x86_64-linux" { gui = true; } "qemu";
-        };
-        aarch64-linux = {
+        }
+        // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
           sandbox-headless = mkImage "aarch64-linux" { } "qemu-efi";
           sandbox-gui = mkImage "aarch64-linux" { gui = true; } "qemu-efi";
-        };
-      };
+        }
+      );
 
       formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.nixfmt-tree);
 

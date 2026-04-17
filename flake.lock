@@ -174,23 +174,6 @@
         "type": "github"
       }
     },
-    "nixpkgs-master": {
-      "flake": false,
-      "locked": {
-        "lastModified": 1776326772,
-        "narHash": "sha256-Md5aterp4KYsD1nO1YCeyUTkcnRAKw/wnoNd8B0iPlc=",
-        "owner": "nixos",
-        "repo": "nixpkgs",
-        "rev": "61809bc07bf1d282b47080c5c6824b1738355ae1",
-        "type": "github"
-      },
-      "original": {
-        "owner": "nixos",
-        "ref": "master",
-        "repo": "nixpkgs",
-        "type": "github"
-      }
-    },
     "nur": {
       "inputs": {
         "flake-parts": [
@@ -220,7 +203,6 @@
       "inputs": {
         "home-manager": "home-manager",
         "nixpkgs": "nixpkgs",
-        "nixpkgs-master": "nixpkgs-master",
         "stylix": "stylix"
       }
     },

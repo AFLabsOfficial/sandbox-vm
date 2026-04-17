@@ -105,9 +105,10 @@
     logDriver = "json-file";
   };
 
-  environment.systemPackages = with pkgs; [
-    claude-code
-
+  environment.systemPackages = [
+    inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
+  ]
+  ++ (with pkgs; [
     # tools
     tmux
     fd
@@ -115,7 +116,7 @@
     jq
     fzf
     just
-  ];
+  ]);
 
   image.modules =
     let
