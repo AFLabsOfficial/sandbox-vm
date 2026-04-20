@@ -43,6 +43,8 @@ EOF
 }
 
 main() {
+	[ "$EUID" -eq 0 ] && die "run.sh must not run as root"
+
 	local ssh_port="" memory=4G cpus=2 claude=true no_pull=false
 	local image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=()
@@ -188,6 +190,7 @@ main() {
 		-smp "$cpus"
 		-drive "$drive_arg"
 		-nic "$nic_arg"
+		-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
 	)
 
 	# display mode
