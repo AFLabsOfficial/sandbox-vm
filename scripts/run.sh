@@ -43,6 +43,8 @@ EOF
 }
 
 main() {
+	[ "$EUID" -eq 0 ] && die "run.sh must not run as root"
+
 	local ssh_port="" memory=4G cpus=2 claude=true no_pull=false
 	local image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=()
@@ -177,7 +179,7 @@ main() {
 	# build networking arg
 	local nic_arg="user"
 	if [ -n "$ssh_port" ]; then
-		nic_arg="user,hostfwd=tcp::${ssh_port}-:22"
+		nic_arg="user,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
 	fi
 
 	# build qemu command
@@ -188,6 +190,7 @@ main() {
 		-smp "$cpus"
 		-drive "$drive_arg"
 		-nic "$nic_arg"
+		-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
 	)
 
 	# display mode
@@ -233,6 +236,10 @@ main() {
 	local fs_id=0 mount_path name tag
 	for mount_path in "${mounts[@]}"; do
 		mount_path=$(realpath "$mount_path")
+		# qemu parses -virtfs as csv, a comma in the path would inject options
+		case "$mount_path" in
+		*,*) die "--mount path may not contain commas: $mount_path" ;;
+		esac
 		name=$(basename "$mount_path")
 		# 9p tags limited to 31 chars: 2 (prefix) + 29 (name)
 		tag="m_${name:0:29}"
@@ -252,6 +259,9 @@ main() {
 			info "  run 'claude login' inside the VM to authenticate"
 		fi
 		claude_dir=$(realpath "$claude_dir")
+		case "$claude_dir" in
+		*,*) die "claude config dir may not contain commas: $claude_dir" ;;
+		esac
 
 		qemu_args+=(
 			-virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${fs_id}"
@@ -264,16 +274,22 @@ main() {
 	[ -n "$ssh_port" ] && info "SSH: ssh -p $ssh_port sandbox@localhost"
 	info "---"
 
+	CLEANUP_TMPDIR=$(mktemp -d)
+	local qemu_log="$CLEANUP_TMPDIR/qemu.log"
+
 	if [ "$gui" = "true" ]; then
-		exec "${qemu_args[@]}"
+		# run as child so the cleanup trap still fires on exit
+		"${qemu_args[@]}" &
+		QEMU_PID=$!
+		wait "$QEMU_PID"
+		return
 	fi
 
 	# headless: start qemu in background and auto-ssh
-	"${qemu_args[@]}" &>/dev/null &
+	"${qemu_args[@]}" &>"$qemu_log" &
 	QEMU_PID=$!
 
 	# generate throwaway ssh key (vm accepts any key)
-	CLEANUP_TMPDIR=$(mktemp -d)
 	local ssh_key="$CLEANUP_TMPDIR/id_ed25519"
 	ssh-keygen -t ed25519 -f "$ssh_key" -N "" -q
 
@@ -281,8 +297,8 @@ main() {
 	local attempts=0
 	while ! (echo > /dev/tcp/localhost/"$ssh_port") 2>/dev/null; do
 		attempts=$((attempts + 1))
-		[ $attempts -gt 60 ] && die "vm did not become ready in 60s"
-		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly"
+		[ $attempts -gt 60 ] && die "vm did not become ready in 60s (see $qemu_log)"
+		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly (see $qemu_log)"
 		sleep 1
 	done
 
