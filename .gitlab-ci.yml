@@ -12,6 +12,7 @@ build-headless:
       experimental-features = nix-command flakes
       download-buffer-size = 2147483648
       system-features = kvm benchmark big-parallel nixos-test
+      extra-platforms = aarch64-linux
       EOF
   script:
-    - nix build .#packages.x86_64-linux.sandbox-headless
+    - nix build .#packages.aarch64-linux.sandbox-headless
