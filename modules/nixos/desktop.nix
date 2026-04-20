@@ -48,6 +48,14 @@
       yelp
       gnome-tour
       gnome-user-docs
+      baobab
+      decibels
+      gnome-calculator
+      gnome-system-monitor
+      gnome-text-editor
+      loupe
+      papers
+      showtime
     ];
 
     # disable services not needed in a VM sandbox

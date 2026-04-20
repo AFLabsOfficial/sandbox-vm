@@ -93,11 +93,13 @@
     AuthorizedKeysCommandUser nobody
   '';
 
-  # no hardware firmware needed in a VM
-  hardware.enableRedistributableFirmware = lib.mkForce false;
-  hardware.wirelessRegulatoryDatabase = lib.mkForce false;
-
-  documentation.enable = false;
+  documentation = {
+    enable = false;
+    man.enable = false;
+    info.enable = false;
+    doc.enable = false;
+    nixos.enable = false;
+  };
   environment.defaultPackages = [ ];
 
   virtualisation.docker = {
@@ -135,13 +137,31 @@
         {
           image.baseName = name;
           system.build.image = lib.mkForce (
-            import (modulesPath + "/../lib/make-disk-image.nix") {
-              inherit lib config pkgs;
-              inherit (config.virtualisation) diskSize;
-              inherit (config.image) baseName;
-              format = "qcow2-compressed";
-              partitionTableType = if config.image.efiSupport then "efi" else "legacy";
-            }
+            let
+              rawImage = import (modulesPath + "/../lib/make-disk-image.nix") {
+                inherit lib config pkgs;
+                inherit (config.virtualisation) diskSize;
+                inherit (config.image) baseName;
+                format = "qcow2";
+                partitionTableType = if config.image.efiSupport then "efi" else "legacy";
+              };
+            in
+            # post-process: parallel zstd on qcow2 v3 (~half the size of zlib v2, faster decompress)
+            pkgs.runCommand name { nativeBuildInputs = [ pkgs.qemu-utils ]; } ''
+              mkdir -p $out
+              # qemu-img caps -m at 16
+              cores="''${NIX_BUILD_CORES:-4}"
+              [ "$cores" -gt 0 ] || cores=4
+              [ "$cores" -gt 16 ] && cores=16
+              qemu-img convert \
+                -f qcow2 \
+                -O qcow2 \
+                -c \
+                -o compression_type=zstd \
+                -m "$cores" \
+                ${rawImage}/${name}.qcow2 \
+                $out/${name}.qcow2
+            ''
           );
         };
     in

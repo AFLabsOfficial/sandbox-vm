@@ -56,9 +56,6 @@
             ./modules/nixos/vm-9p-automount.nix
             ./modules/nixos/localisation.nix
             ./modules/nixos/desktop.nix
-            ./modules/nixos/theme.nix
-
-            inputs.stylix.nixosModules.stylix
 
             inputs.home-manager.nixosModules.home-manager
             {
@@ -70,6 +67,8 @@
             }
           ]
           ++ nixpkgs.lib.optionals gui [
+            inputs.stylix.nixosModules.stylix
+            ./modules/nixos/theme.nix
             {
               vm-guest.headless = nixpkgs.lib.mkForce false;
               desktop = {
