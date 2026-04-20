@@ -1,10 +1,8 @@
 stages:
   - build
 
-build-headless:
+.build-image:
   stage: build
-  tags:
-    - flarenetwork-kvm
   image: nixos/nix:latest
   before_script:
     - |
@@ -14,5 +12,33 @@ build-headless:
       system-features = kvm benchmark big-parallel nixos-test
       extra-platforms = aarch64-linux
       EOF
+
+build-headless-x86_64:
+  extends: .build-image
+  tags:
+    - flarenetwork-kvm
+  script:
+    - nix build .#packages.x86_64-linux.sandbox-headless
+
+build-headless-aarch64:
+  extends: .build-image
+  tags:
+    - flarenetwork-kvm
+  timeout: 2h
   script:
     - nix build .#packages.aarch64-linux.sandbox-headless
+
+build-gui-x86_64:
+  extends: .build-image
+  tags:
+    - flarenetwork-kvm
+  script:
+    - nix build .#packages.x86_64-linux.sandbox-gui
+
+build-gui-aarch64:
+  extends: .build-image
+  tags:
+    - flarenetwork-kvm
+  timeout: 3h
+  script:
+    - nix build .#packages.aarch64-linux.sandbox-gui
