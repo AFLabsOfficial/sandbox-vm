@@ -114,7 +114,10 @@ main() {
 		case "$gui" in
 		true) variant="gui" ;;
 		false) variant="headless" ;;
-		"") variant="headless"; gui=false ;;
+		"")
+			variant="headless"
+			gui=false
+			;;
 		esac
 		local -a pull_args=()
 		[ "$no_pull" = true ] && pull_args+=("--no-pull")
@@ -295,7 +298,7 @@ main() {
 
 	info "waiting for vm (port $ssh_port)..."
 	local attempts=0
-	while ! (echo > /dev/tcp/localhost/"$ssh_port") 2>/dev/null; do
+	while ! (echo >/dev/tcp/localhost/"$ssh_port") 2>/dev/null; do
 		attempts=$((attempts + 1))
 		[ $attempts -gt 60 ] && die "vm did not become ready in 60s (see $qemu_log)"
 		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly (see $qemu_log)"
