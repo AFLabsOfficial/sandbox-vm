@@ -18,17 +18,12 @@
   };
 
   config = lib.mkIf config.vm-guest.enable {
-    services.qemuGuest.enable = true;
     services.spice-vdagentd.enable = lib.mkIf (!config.vm-guest.headless) true;
 
     boot.kernelParams = lib.mkIf config.vm-guest.headless [ "console=ttyS0,115200" ];
 
-    # 9p for host file mounting
+    # 9p for host file mounting, autoloaded on first mount
     boot.initrd.availableKernelModules = [
-      "9p"
-      "9pnet_virtio"
-    ];
-    boot.kernelModules = [
       "9p"
       "9pnet_virtio"
     ];
@@ -56,7 +51,6 @@
       curl
       wget
       htop
-      sshfs
     ];
   };
 }

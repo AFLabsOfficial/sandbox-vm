@@ -93,10 +93,6 @@
     AuthorizedKeysCommandUser nobody
   '';
 
-  # no hardware firmware needed in a VM
-  hardware.enableRedistributableFirmware = lib.mkForce false;
-  hardware.wirelessRegulatoryDatabase = lib.mkForce false;
-
   documentation = {
     enable = false;
     man.enable = false;
