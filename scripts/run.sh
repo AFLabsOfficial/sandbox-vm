@@ -233,6 +233,10 @@ main() {
 	local fs_id=0 mount_path name tag
 	for mount_path in "${mounts[@]}"; do
 		mount_path=$(realpath "$mount_path")
+		# qemu parses -virtfs as csv, a comma in the path would inject options
+		case "$mount_path" in
+		*,*) die "--mount path may not contain commas: $mount_path" ;;
+		esac
 		name=$(basename "$mount_path")
 		# 9p tags limited to 31 chars: 2 (prefix) + 29 (name)
 		tag="m_${name:0:29}"
@@ -252,6 +256,9 @@ main() {
 			info "  run 'claude login' inside the VM to authenticate"
 		fi
 		claude_dir=$(realpath "$claude_dir")
+		case "$claude_dir" in
+		*,*) die "claude config dir may not contain commas: $claude_dir" ;;
+		esac
 
 		qemu_args+=(
 			-virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${fs_id}"
