@@ -9,10 +9,14 @@ setup_colors
 
 BASE_URL="https://dl.aflabs.org/iso"
 
-# global for cleanup trap
-TMPFILE=""
+# globals for cleanup trap
+TMP_IMG=""
+TMP_HASH=""
+TMP_SIG=""
 cleanup() {
-	[ -n "$TMPFILE" ] && rm -f "$TMPFILE"
+	[ -n "$TMP_IMG" ] && rm -f "$TMP_IMG"
+	[ -n "$TMP_HASH" ] && rm -f "$TMP_HASH"
+	[ -n "$TMP_SIG" ] && rm -f "$TMP_SIG"
 	return 0
 }
 trap cleanup EXIT
@@ -38,43 +42,75 @@ EOF
 
 verify_signature() {
 	local hash_file="$1" sig_file="$2"
-	if [ ! -f "$sig_file" ]; then
-		warn "no .sha256.asc signature found, skipping signature verification"
-		return 0
-	fi
+	[ -f "$sig_file" ] || die "missing signature file: $sig_file"
+
 	if ! command -v gpg &>/dev/null; then
-		warn "gpg not found, skipping signature verification"
+		warn "gpg not installed; skipping signature verification"
+		warn "sha256 alone does not authenticate against a network attacker"
 		return 0
 	fi
 
-	# auto-import signing keys from repo if available
 	local keys_file="$SCRIPT_DIR/../KEYS"
-	if [ -f "$keys_file" ]; then
-		gpg --import "$keys_file" 2>/dev/null || true
-	fi
+	[ -f "$keys_file" ] || die "missing KEYS file: $keys_file"
+	gpg --import "$keys_file" 2>/dev/null || die "failed to import KEYS"
 
 	info "verifying signature..."
-	if ! gpg --verify "$sig_file" "$hash_file" 2>/dev/null; then
+	gpg --verify "$sig_file" "$hash_file" 2>/dev/null ||
 		die "signature verification failed for $hash_file"
-	fi
 	info "signature ok"
 }
 
 verify_hash() {
 	local file="$1" hash_file="$2"
-	if [ ! -f "$hash_file" ]; then
-		warn "no .sha256 file found, skipping verification"
-		return 0
-	fi
+	[ -f "$hash_file" ] || die "missing hash file: $hash_file"
 	info "verifying sha256..."
 	local expected actual
 	expected=$(awk '{print $1}' "$hash_file")
 	actual=$(sha256_file "$file")
 	if [ "$expected" != "$actual" ]; then
-		rm -f "$file"
 		die "sha256 mismatch! expected: $expected, actual: $actual"
 	fi
 	info "sha256 ok: $actual"
+}
+
+# resolve latest matching filename from server listing.
+# echoes filename on stdout; returns curl exit code on failure.
+resolve_from_server() {
+	local variant="$1" arch="$2" version="$3" image_re="$4"
+	local listing
+	listing=$(curl -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null) || return $?
+	if [ -n "$version" ]; then
+		echo "$listing" | { grep -oE "$image_re" || true; } |
+			{ grep "sandbox-${variant}-${arch}-${version}-" || true; } | head -1
+	else
+		echo "$listing" | { grep -oE "$image_re" || true; } | sort -V | tail -1
+	fi
+	return 0
+}
+
+# resolve latest matching filename from cache.
+resolve_from_cache() {
+	local variant="$1" arch="$2" version="$3" image_re="$4" cache_dir="$5"
+	local re="$image_re"
+	[ -n "$version" ] &&
+		re="sandbox-${variant}-${arch}-${version}-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	find "$cache_dir" -maxdepth 1 -name '*.qcow2' 2>/dev/null |
+		while read -r p; do basename "$p"; done |
+		{ grep -E "$re" || true; } | sort -V | tail -1
+	return 0
+}
+
+# verify a cached image against its sidecars.
+verify_cached() {
+	local image_path="$1"
+	local hash_path="${image_path%.qcow2}.sha256"
+	local sig_path="${hash_path}.asc"
+	[ -f "$hash_path" ] ||
+		die "cached image $image_path has no .sha256 sidecar; re-run with --force"
+	[ -f "$sig_path" ] ||
+		die "cached image $image_path has no .sha256.asc sidecar; re-run with --force"
+	verify_signature "$hash_path" "$sig_path"
+	verify_hash "$image_path" "$hash_path"
 }
 
 main() {
@@ -135,7 +171,7 @@ main() {
 
 	local image_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
 
-	# list mode
+	# list mode: listing is the product, network is mandatory
 	if [ "$list" = true ]; then
 		local listing
 		listing=$(curl -fsSL "$BASE_URL/")
@@ -145,34 +181,42 @@ main() {
 
 	mkdir -p "$cache_dir"
 
-	# no-pull mode: use latest cached image
+	# --no-pull: skip network entirely, verify from cache
 	if [ "$no_pull" = true ]; then
 		local cached
-		cached=$(find "$cache_dir" -maxdepth 1 -name "*.qcow2" |
-			xargs -r -n1 basename |
-			grep -E "$image_re" |
-			sort -V | tail -1)
-		[ -n "$cached" ] || die "no cached image found for ${variant}/${arch}"
+		cached=$(resolve_from_cache "$variant" "$arch" "$version" "$image_re" "$cache_dir")
+		[ -n "$cached" ] ||
+			die "no cached image found for ${variant}/${arch}${version:+ $version}"
 		info "cached: $cached"
+		verify_cached "$cache_dir/$cached"
 		echo "$cache_dir/$cached"
 		return 0
 	fi
 
-	# resolve filename from directory listing
-	local listing filename
-	listing=$(curl -fsSL "$BASE_URL/")
-	if [ -n "$version" ]; then
-		filename=$(echo "$listing" |
-			grep -oE "$image_re" |
-			grep "sandbox-${variant}-${arch}-${version}-" |
-			head -1)
-		[ -n "$filename" ] || die "no image found for ${variant}/${arch} version ${version}"
-	else
-		filename=$(echo "$listing" |
-			grep -oE "$image_re" |
-			sort -V | tail -1)
-		[ -n "$filename" ] || die "no image found for ${variant}/${arch}"
-	fi
+	# try to resolve latest filename from server; fall back to cache on network failure
+	local filename="" curl_rc=0
+	set +e
+	filename=$(resolve_from_server "$variant" "$arch" "$version" "$image_re")
+	curl_rc=$?
+	set -e
+	case $curl_rc in
+	0) ;;
+	22) die "server returned HTTP 4xx fetching $BASE_URL/" ;;
+	*)
+		[ "$force" = true ] &&
+			die "cannot --force re-download: network unreachable (curl $curl_rc)"
+		warn "network unreachable (curl $curl_rc); falling back to cache"
+		filename=$(resolve_from_cache "$variant" "$arch" "$version" "$image_re" "$cache_dir")
+		[ -n "$filename" ] ||
+			die "no cached image matching ${variant}/${arch}${version:+ $version}"
+		info "cached: $filename"
+		verify_cached "$cache_dir/$filename"
+		echo "$cache_dir/$filename"
+		return 0
+		;;
+	esac
+	[ -n "$filename" ] ||
+		die "no image found for ${variant}/${arch}${version:+ version $version}"
 
 	local hashname signame url hash_url sig_url dest hash_dest sig_dest
 	hashname="${filename%.qcow2}.sha256"
@@ -184,21 +228,35 @@ main() {
 	hash_dest="$cache_dir/$hashname"
 	sig_dest="$cache_dir/$signame"
 
+	# cache hit: re-verify with cached sidecars
 	if [ -f "$dest" ] && [ "$force" != true ]; then
 		info "cached: $filename"
+		verify_cached "$dest"
 		echo "$dest"
 		return 0
 	fi
 
 	info "downloading: $filename"
-	TMPFILE="$cache_dir/.pull-$$-$filename"
-	curl -f --progress-bar -o "$TMPFILE" "$url"
-	curl -fsSL -o "$hash_dest" "$hash_url" 2>/dev/null || true
-	curl -fsSL -o "$sig_dest" "$sig_url" 2>/dev/null || true
-	verify_signature "$hash_dest" "$sig_dest"
-	verify_hash "$TMPFILE" "$hash_dest"
-	mv "$TMPFILE" "$dest"
-	TMPFILE=""
+	TMP_IMG="$cache_dir/.pull-$$-$filename"
+	TMP_HASH="$cache_dir/.pull-$$-$hashname"
+	TMP_SIG="$cache_dir/.pull-$$-$signame"
+
+	# sidecars first: a few KB, tells us early if the release is well-formed
+	curl -f -sSL -o "$TMP_HASH" "$hash_url" ||
+		die "failed to download $hash_url"
+	curl -f -sSL -o "$TMP_SIG" "$sig_url" ||
+		die "failed to download $sig_url"
+	verify_signature "$TMP_HASH" "$TMP_SIG"
+
+	curl -f --progress-bar -o "$TMP_IMG" "$url"
+	verify_hash "$TMP_IMG" "$TMP_HASH"
+
+	# atomic: cache only ever contains fully-verified triplets
+	mv "$TMP_IMG" "$dest"
+	mv "$TMP_HASH" "$hash_dest"
+	mv "$TMP_SIG" "$sig_dest"
+	TMP_IMG="" TMP_HASH="" TMP_SIG=""
+
 	echo "$dest"
 }
 

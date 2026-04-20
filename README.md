@@ -20,17 +20,20 @@ Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
 **macOS**
 ```sh
-brew install just qemu curl
+brew install just qemu curl gnupg
 ```
 
 **Debian / Ubuntu**
 ```sh
 # x86_64 hosts
-sudo apt install just qemu-system-x86 qemu-kvm curl -y
+sudo apt install just qemu-system-x86 qemu-kvm curl gnupg -y
 
 # aarch64 hosts
-sudo apt install just qemu-system-arm qemu-efi-aarch64 curl -y
+sudo apt install just qemu-system-arm qemu-efi-aarch64 curl gnupg -y
 ```
+
+`gnupg` is optional but strongly recommended; without it, `pull` falls back to
+sha256-only, which does not authenticate against a network attacker.
 
 Images are built for **x86_64** (Intel/AMD) and **aarch64** (Apple Silicon,
 ARM Linux). The correct architecture is auto-detected. Apple Silicon Macs run
@@ -169,8 +172,10 @@ just list-images headless             # list available versions
 
 Downloaded images are cached in `~/.cache/sandbox-vm/` (or
 `$XDG_CACHE_HOME/sandbox-vm/` if set). SHA256 checksums are GPG-signed; the
-public keys are in [`KEYS`](KEYS) and `pull` verifies signatures automatically
-when `gpg` is available.
+public keys are in [`KEYS`](KEYS). `pull` always verifies sha256 and verifies
+the signature when `gpg` is installed. Cached images are re-verified on every
+launch; if the server is unreachable, `pull` transparently falls back to the
+cached image (still re-verified).
 
 To run a local image directly:
 
