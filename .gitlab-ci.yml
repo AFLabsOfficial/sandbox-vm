@@ -1,0 +1,17 @@
+stages:
+  - build
+
+build-headless:
+  stage: build
+  tags:
+    - flarenetwork-kvm
+  image: nixos/nix:latest
+  before_script:
+    - |
+      cat >> /etc/nix/nix.conf <<EOF
+      experimental-features = nix-command flakes
+      download-buffer-size = 2147483648
+      system-features = kvm benchmark big-parallel nixos-test
+      EOF
+  script:
+    - nix build .#packages.x86_64-linux.sandbox-headless
