@@ -97,7 +97,13 @@
   hardware.enableRedistributableFirmware = lib.mkForce false;
   hardware.wirelessRegulatoryDatabase = lib.mkForce false;
 
-  documentation.enable = false;
+  documentation = {
+    enable = false;
+    man.enable = false;
+    info.enable = false;
+    doc.enable = false;
+    nixos.enable = false;
+  };
   environment.defaultPackages = [ ];
 
   virtualisation.docker = {
