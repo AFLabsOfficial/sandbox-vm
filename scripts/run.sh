@@ -177,7 +177,7 @@ main() {
 	# build networking arg
 	local nic_arg="user"
 	if [ -n "$ssh_port" ]; then
-		nic_arg="user,hostfwd=tcp::${ssh_port}-:22"
+		nic_arg="user,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
 	fi
 
 	# build qemu command
