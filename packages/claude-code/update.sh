@@ -1,17 +1,18 @@
 #!/usr/bin/env nix-shell
-#!nix-shell -i bash -p curl jq nodejs prefetch-npm-deps nix-prefetch
+#!nix-shell -i bash -p curl jq nix
 # shellcheck shell=bash
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-ROOT_DIR="$(cd "$SCRIPT_DIR/../.." && pwd)"
 PKG_FILE="$SCRIPT_DIR/package.nix"
-LOCK_FILE="$SCRIPT_DIR/package-lock.json"
 
-cd "$ROOT_DIR"
+# keep in sync with the `sources` attrset in package.nix
+PLATFORMS=(linux-x64 linux-arm64 darwin-x64 darwin-arm64)
 
-extract_hash() {
-	sed 's/\x1b\[[0-9;]*m//g' | grep 'got:' | tail -1 | grep -oP 'sha256-[A-Za-z0-9+/]+='
+prefetch() {
+	local url="$1"
+	nix --extra-experimental-features 'nix-command flakes' \
+		store prefetch-file --unpack --json "$url" 2>/dev/null | jq -r '.hash'
 }
 
 main() {
@@ -27,35 +28,24 @@ main() {
 
 	echo "updating claude-code: $current -> $latest"
 
-	local url="https://registry.npmjs.org/@anthropic-ai/claude-code/-/claude-code-${latest}.tgz"
-
-	echo "  prefetching source..."
-	local base32 src_hash
-	base32=$(nix-prefetch-url --unpack "$url" 2>/dev/null)
-	src_hash=$(nix hash convert --to sri "sha256:$base32")
-	echo "  source: $src_hash"
-
-	echo "  generating package-lock.json..."
-	local tmpdir
-	tmpdir=$(mktemp -d)
-	trap 'rm -rf "$tmpdir"' RETURN
-	curl -sf "$url" -o "$tmpdir/pkg.tgz"
-	tar xzf "$tmpdir/pkg.tgz" -C "$tmpdir" --strip-components=1
-	(cd "$tmpdir" && npm install --package-lock-only --ignore-scripts --no-audit --no-fund 2>/dev/null)
-	cp "$tmpdir/package-lock.json" "$LOCK_FILE"
-
-	echo "  computing npm deps hash..."
-	local npm_hash
-	npm_hash=$(prefetch-npm-deps "$LOCK_FILE" 2>/dev/null)
-	echo "  npmDepsHash: $npm_hash"
-
-	local old_src old_npm
-	old_src=$(grep 'hash = "sha256-' "$PKG_FILE" | head -1 | grep -oP 'sha256-[A-Za-z0-9+/]+=')
-	old_npm=$(grep 'npmDepsHash = "sha256-' "$PKG_FILE" | grep -oP 'sha256-[A-Za-z0-9+/]+=')
-
 	sed -i "s|version = \"$current\"|version = \"$latest\"|" "$PKG_FILE"
-	sed -i "s|$old_src|$src_hash|" "$PKG_FILE"
-	sed -i "s|$old_npm|$npm_hash|" "$PKG_FILE"
+
+	local slug url new_hash old_hash
+	for slug in "${PLATFORMS[@]}"; do
+		url="https://registry.npmjs.org/@anthropic-ai/claude-code-${slug}/-/claude-code-${slug}-${latest}.tgz"
+		echo "  prefetching $slug..."
+		new_hash=$(prefetch "$url")
+		old_hash=$(awk -v slug="$slug" '
+			$0 ~ "slug = \"" slug "\";" { found=1; next }
+			found && /hash = "sha256-/ {
+				match($0, /sha256-[A-Za-z0-9+\/]+=*/)
+				print substr($0, RSTART, RLENGTH)
+				exit
+			}
+		' "$PKG_FILE")
+		sed -i "s|$old_hash|$new_hash|" "$PKG_FILE"
+		echo "    $new_hash"
+	done
 
 	echo "claude-code updated to $latest"
 }
