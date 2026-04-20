@@ -274,16 +274,22 @@ main() {
 	[ -n "$ssh_port" ] && info "SSH: ssh -p $ssh_port sandbox@localhost"
 	info "---"
 
+	CLEANUP_TMPDIR=$(mktemp -d)
+	local qemu_log="$CLEANUP_TMPDIR/qemu.log"
+
 	if [ "$gui" = "true" ]; then
-		exec "${qemu_args[@]}"
+		# run as child so the cleanup trap still fires on exit
+		"${qemu_args[@]}" &
+		QEMU_PID=$!
+		wait "$QEMU_PID"
+		return
 	fi
 
 	# headless: start qemu in background and auto-ssh
-	"${qemu_args[@]}" &>/dev/null &
+	"${qemu_args[@]}" &>"$qemu_log" &
 	QEMU_PID=$!
 
 	# generate throwaway ssh key (vm accepts any key)
-	CLEANUP_TMPDIR=$(mktemp -d)
 	local ssh_key="$CLEANUP_TMPDIR/id_ed25519"
 	ssh-keygen -t ed25519 -f "$ssh_key" -N "" -q
 
@@ -291,8 +297,8 @@ main() {
 	local attempts=0
 	while ! (echo > /dev/tcp/localhost/"$ssh_port") 2>/dev/null; do
 		attempts=$((attempts + 1))
-		[ $attempts -gt 60 ] && die "vm did not become ready in 60s"
-		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly"
+		[ $attempts -gt 60 ] && die "vm did not become ready in 60s (see $qemu_log)"
+		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly (see $qemu_log)"
 		sleep 1
 	done
 
