@@ -13,11 +13,14 @@ BASE_URL="https://dl.aflabs.org/iso"
 CURL_OPTS=(--proto '=https' --proto-redir '=https')
 
 # globals for cleanup trap
-TMP_IMG=""
+# note: image partial is not tracked here — it persists across runs so a
+# re-run can resume via curl -C -. it's only removed when verify fails,
+# via UNVERIFIED_PARTIAL below.
 TMP_HASH=""
 TMP_SIG=""
+UNVERIFIED_PARTIAL=""
 cleanup() {
-	[ -n "$TMP_IMG" ] && rm -f "$TMP_IMG"
+	[ -n "$UNVERIFIED_PARTIAL" ] && rm -f "$UNVERIFIED_PARTIAL"
 	[ -n "$TMP_HASH" ] && rm -f "$TMP_HASH"
 	[ -n "$TMP_SIG" ] && rm -f "$TMP_SIG"
 	return 0
@@ -37,6 +40,7 @@ Options:
                        (default: latest patch of this repo's major.minor)
   --list               List all available versions for variant+arch
   --no-pull            Use latest cached image (no network)
+  --prune [N]          Keep only latest N (default 3) per variant+arch, remove the rest
   --cache-dir <path>   Override cache directory
   --force              Force re-download even if cached
   -h, --help           Show usage
@@ -80,6 +84,36 @@ verify_hash() {
 	[ "$expected_hash" = "$actual" ] ||
 		die "sha256 mismatch! expected: $expected_hash, actual: $actual"
 	info "sha256 ok: $actual"
+}
+
+# portable size+mtime query — echoes "<size> <mtime>" to stdout.
+stat_size_mtime() {
+	stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1"
+}
+
+# write a .verified stamp next to a freshly-verified image. future cache
+# hits compare size+mtime against this stamp and skip re-running sha256.
+write_verified_stamp() {
+	local file="$1" hash="$2"
+	local sm
+	sm=$(stat_size_mtime "$file")
+	printf 'sha256=%s\nsize=%s\nmtime=%s\n' \
+		"$hash" "${sm%% *}" "${sm##* }" >"${file}.verified"
+}
+
+# return 0 if file has a .verified stamp whose size+mtime match current state.
+check_verified_stamp() {
+	local file="$1"
+	local stamp="${file}.verified"
+	[ -f "$stamp" ] || return 1
+	local sm expected_size expected_mtime
+	sm=$(stat_size_mtime "$file")
+	expected_size=$(sed -n 's/^size=//p' "$stamp")
+	expected_mtime=$(sed -n 's/^mtime=//p' "$stamp")
+	[ -n "$expected_size" ] || return 1
+	[ "${sm%% *}" = "$expected_size" ] || return 1
+	[ "${sm##* }" = "$expected_mtime" ] || return 1
+	return 0
 }
 
 # extract vMAJOR.MINOR from flake.nix's version literal, e.g. "0.5".
@@ -129,22 +163,62 @@ resolve_from_cache() {
 	return 0
 }
 
-# verify a cached image against its sidecars.
+# drop all but the latest N cached images per (variant, arch) group,
+# along with their sha256/asc/verified/partial siblings.
+prune_cache() {
+	local cache_dir="$1" keep="$2"
+	local removed=0 groups group files total drop_count to_drop f base
+	groups=$(find "$cache_dir" -maxdepth 1 -name 'sandbox-*-v*.qcow2' 2>/dev/null |
+		while read -r p; do basename "$p"; done |
+		sed -nE 's/^(sandbox-[^-]+-[^-]+)-v[0-9]+.*/\1/p' |
+		sort -u)
+	for group in $groups; do
+		files=$(find "$cache_dir" -maxdepth 1 -name "${group}-v*.qcow2" 2>/dev/null |
+			while read -r p; do basename "$p"; done | sort -V)
+		total=$(printf '%s\n' "$files" | grep -c . || true)
+		[ "$total" -le "$keep" ] && continue
+		drop_count=$((total - keep))
+		to_drop=$(printf '%s\n' "$files" | head -n "$drop_count")
+		while IFS= read -r f; do
+			[ -n "$f" ] || continue
+			base="${f%.qcow2}"
+			info "pruning $f"
+			rm -f "$cache_dir/$f" \
+				"$cache_dir/${base}.sha256" \
+				"$cache_dir/${base}.sha256.asc" \
+				"$cache_dir/${f}.verified" \
+				"$cache_dir/${f}.partial"
+			removed=$((removed + 1))
+		done <<<"$to_drop"
+	done
+	info "pruned $removed image(s), kept $keep per variant+arch"
+}
+
+# verify a cached image against its sidecars. fast-paths via .verified
+# stamp when size+mtime haven't changed since the last full verify.
 verify_cached() {
 	local image_path="$1"
 	local hash_path="${image_path%.qcow2}.sha256"
 	local sig_path="${hash_path}.asc"
+
+	if check_verified_stamp "$image_path"; then
+		info "verified stamp fresh: $(basename "$image_path")"
+		return 0
+	fi
+
 	[ -f "$hash_path" ] ||
 		die "cached image $image_path has no .sha256 sidecar; re-run with --force"
 	[ -f "$sig_path" ] ||
 		die "cached image $image_path has no .sha256.asc sidecar; re-run with --force"
 	verify_signature "$hash_path" "$sig_path"
 	verify_hash "$image_path" "$hash_path" "$(basename "$image_path")"
+	write_verified_stamp "$image_path" "$(awk '{print $1}' "$hash_path")"
 }
 
 main() {
 	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/sandbox-vm"
 	local arch="" version="" list=false force=false no_pull=false variant=""
+	local prune=false prune_keep=3
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -163,6 +237,16 @@ main() {
 		--no-pull)
 			no_pull=true
 			shift
+			;;
+		--prune)
+			prune=true
+			# optional int: --prune 5
+			if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+				prune_keep="$2"
+				shift 2
+			else
+				shift
+			fi
 			;;
 		--cache-dir)
 			cache_dir="$2"
@@ -188,6 +272,13 @@ main() {
 			;;
 		esac
 	done
+
+	# --prune doesn't need a variant; it operates on the whole cache
+	if [ "$prune" = true ]; then
+		mkdir -p "$cache_dir"
+		prune_cache "$cache_dir" "$prune_keep"
+		return 0
+	fi
 
 	[ -n "$variant" ] || die "variant is required (headless or gui)"
 	case "$variant" in
@@ -292,7 +383,7 @@ main() {
 	fi
 
 	info "downloading: $filename"
-	TMP_IMG="$cache_dir/.pull-$$-$filename"
+	local partial="$dest.partial"
 	TMP_HASH="$cache_dir/.pull-$$-$hashname"
 	TMP_SIG="$cache_dir/.pull-$$-$signame"
 
@@ -303,19 +394,31 @@ main() {
 		die "failed to download $sig_url"
 	verify_signature "$TMP_HASH" "$TMP_SIG"
 
-	curl "${CURL_OPTS[@]}" -f --progress-bar -o "$TMP_IMG" "$url"
-	verify_hash "$TMP_IMG" "$TMP_HASH" "$filename"
+	# qcow2: resume-capable. partial persists on interrupt so a re-run
+	# continues from where we stopped. --retry handles flaky networks.
+	curl "${CURL_OPTS[@]}" -f --progress-bar -C - --retry 5 --retry-connrefused --retry-delay 3 \
+		-o "$partial" "$url" ||
+		die "download failed (partial kept at $partial for resume)"
 
-	# promote: retarget each TMP_ at its final path so the cleanup trap
-	# unwinds any partially-promoted triplet if we die between moves
-	mv "$TMP_IMG" "$dest"
-	TMP_IMG="$dest"
+	# curl succeeded — from here on, partial is removable on failure
+	UNVERIFIED_PARTIAL="$partial"
+	verify_hash "$partial" "$TMP_HASH" "$filename"
+	UNVERIFIED_PARTIAL=""
+
+	# promote: track $dest via UNVERIFIED_PARTIAL and retarget each TMP_ at
+	# its final path, so the cleanup trap unwinds any partially-promoted
+	# triplet if we die between moves
+	mv "$partial" "$dest"
+	UNVERIFIED_PARTIAL="$dest"
 	mv "$TMP_HASH" "$hash_dest"
 	TMP_HASH="$hash_dest"
 	mv "$TMP_SIG" "$sig_dest"
 	TMP_SIG="$sig_dest"
-	# full triplet present — clear so cleanup leaves it alone
-	TMP_IMG="" TMP_HASH="" TMP_SIG=""
+	# full triplet present — clear all trackers so cleanup leaves it alone
+	UNVERIFIED_PARTIAL="" TMP_HASH="" TMP_SIG=""
+
+	# write stamp so future launches hit the fast path in verify_cached
+	write_verified_stamp "$dest" "$(awk '{print $1}' "$hash_dest")"
 
 	echo "$dest"
 }
