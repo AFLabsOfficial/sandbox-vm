@@ -136,21 +136,24 @@ main() {
 
 	guest_arch=$(normalize_arch "$guest_arch")
 
-	# platform detection
-	local host_arch os accel qemu_bin
+	# platform detection — tcg,thread=multi so -smp parallelises across host cores
+	local host_arch os accel qemu_bin hw_accel=false
 	host_arch=$(uname -m)
 	os=$(uname -s)
-	accel="tcg"
+	accel="tcg,thread=multi"
 
 	case "$os" in
 	Linux)
-		[ -r /dev/kvm ] && accel="kvm"
+		if [ -r /dev/kvm ]; then
+			accel="kvm"
+			hw_accel=true
+		fi
 		;;
 	Darwin)
 		# hvf only works when guest matches host
 		case "$host_arch" in
-		aarch64 | arm64) [ "$guest_arch" = "aarch64" ] && accel="hvf" ;;
-		x86_64 | amd64) [ "$guest_arch" = "x86_64" ] && accel="hvf" ;;
+		aarch64 | arm64) [ "$guest_arch" = "aarch64" ] && accel="hvf" && hw_accel=true ;;
+		x86_64 | amd64) [ "$guest_arch" = "x86_64" ] && accel="hvf" && hw_accel=true ;;
 		esac
 		;;
 	esac
@@ -166,9 +169,9 @@ main() {
 		CLEANUP_OVERLAY=$(mktemp -d)
 		local overlay="$CLEANUP_OVERLAY/overlay.qcow2"
 		qemu-img create -f qcow2 -b "$(realpath "$image")" -F qcow2 "$overlay" "$disk_size"
-		drive_arg="file=$overlay,format=qcow2"
+		drive_arg="if=none,id=hd0,file=$overlay,format=qcow2,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
 	else
-		drive_arg="file=$image,format=qcow2,snapshot=on"
+		drive_arg="if=none,id=hd0,file=$image,format=qcow2,snapshot=on,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
 	fi
 
 	# auto-allocate ssh port for headless
@@ -180,9 +183,9 @@ main() {
 	fi
 
 	# build networking arg
-	local nic_arg="user"
+	local nic_arg="user,model=virtio-net-pci"
 	if [ -n "$ssh_port" ]; then
-		nic_arg="user,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
+		nic_arg="user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
 	fi
 
 	# build qemu command
@@ -192,6 +195,8 @@ main() {
 		-m "$memory"
 		-smp "$cpus"
 		-drive "$drive_arg"
+		-device "virtio-blk-pci,drive=hd0"
+		-device virtio-rng-pci
 		-nic "$nic_arg"
 		-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
 	)
@@ -208,13 +213,13 @@ main() {
 	fi
 
 	# x86_64 with hardware accel — pass through host CPU features (AVX, etc.)
-	if [ "$guest_arch" = "x86_64" ] && [ "$accel" != "tcg" ]; then
+	if [ "$guest_arch" = "x86_64" ] && [ "$hw_accel" = true ]; then
 		qemu_args+=(-cpu host)
 	fi
 
 	# aarch64 guest needs machine type and uefi firmware
 	if [ "$guest_arch" = "aarch64" ]; then
-		if [ "$accel" = "hvf" ]; then
+		if [ "$hw_accel" = true ]; then
 			qemu_args+=(-machine virt -cpu host)
 		else
 			qemu_args+=(-machine virt -cpu max)
