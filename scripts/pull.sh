@@ -190,6 +190,12 @@ main() {
 	*) die "variant must be headless or gui, got: $variant" ;;
 	esac
 
+	# reject anything that isn't strict semver before it hits a regex interpolation
+	if [ -n "$version" ]; then
+		[[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] ||
+			die "--version must be a strict semver like v0.5.1, got: $version"
+	fi
+
 	arch=$(normalize_arch "$arch")
 	require_cmd curl
 
@@ -198,7 +204,9 @@ main() {
 	local any_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
 	local pin_re pin_desc repo_mm=""
 	if [ -n "$version" ]; then
-		pin_re="sandbox-${variant}-${arch}-${version}-[0-9]{8}\.[0-9a-f]+\.qcow2"
+		# escape dots so the literal version doesn't match too broadly as ERE
+		local version_re="${version//./\\.}"
+		pin_re="sandbox-${variant}-${arch}-${version_re}-[0-9]{8}\.[0-9a-f]+\.qcow2"
 		pin_desc="$version"
 	else
 		repo_mm=$(repo_version_mm)
