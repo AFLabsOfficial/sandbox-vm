@@ -56,10 +56,11 @@ verify_signature() {
 
 	local keys_file="$SCRIPT_DIR/../KEYS"
 	[ -f "$keys_file" ] || die "missing KEYS file: $keys_file"
-	gpg --import "$keys_file" 2>/dev/null || die "failed to import KEYS"
+	# don't swallow stderr — imported-key diagnostics and real errors both matter
+	gpg --quiet --import "$keys_file" || die "failed to import KEYS"
 
 	info "verifying signature..."
-	gpg --verify "$sig_file" "$hash_file" 2>/dev/null ||
+	gpg --verify "$sig_file" "$hash_file" ||
 		die "signature verification failed for $hash_file"
 	info "signature ok"
 }
@@ -305,10 +306,15 @@ main() {
 	curl "${CURL_OPTS[@]}" -f --progress-bar -o "$TMP_IMG" "$url"
 	verify_hash "$TMP_IMG" "$TMP_HASH" "$filename"
 
-	# atomic: cache only ever contains fully-verified triplets
+	# promote: retarget each TMP_ at its final path so the cleanup trap
+	# unwinds any partially-promoted triplet if we die between moves
 	mv "$TMP_IMG" "$dest"
+	TMP_IMG="$dest"
 	mv "$TMP_HASH" "$hash_dest"
+	TMP_HASH="$hash_dest"
 	mv "$TMP_SIG" "$sig_dest"
+	TMP_SIG="$sig_dest"
+	# full triplet present — clear so cleanup leaves it alone
 	TMP_IMG="" TMP_HASH="" TMP_SIG=""
 
 	echo "$dest"
