@@ -30,8 +30,9 @@ Arguments:
 
 Options:
   --arch <arch>        x86_64 or aarch64 (default: auto-detect host)
-  --version <ver>      Specific version e.g. "v0.1.0" (default: latest)
-  --list               List available versions for variant+arch
+  --version <ver>      Pin to an exact version e.g. "v0.1.0"
+                       (default: latest patch of this repo's major.minor)
+  --list               List all available versions for variant+arch
   --no-pull            Use latest cached image (no network)
   --cache-dir <path>   Override cache directory
   --force              Force re-download even if cached
@@ -73,30 +74,50 @@ verify_hash() {
 	info "sha256 ok: $actual"
 }
 
-# resolve latest matching filename from server listing.
-# echoes filename on stdout; returns curl exit code on failure.
-resolve_from_server() {
-	local variant="$1" arch="$2" version="$3" image_re="$4"
-	local listing
-	listing=$(curl -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null) || return $?
-	if [ -n "$version" ]; then
-		echo "$listing" | { grep -oE "$image_re" || true; } |
-			{ grep "sandbox-${variant}-${arch}-${version}-" || true; } | head -1
-	else
-		echo "$listing" | { grep -oE "$image_re" || true; } | sort -V | tail -1
-	fi
-	return 0
+# extract vMAJOR.MINOR from flake.nix's version literal, e.g. "0.5".
+repo_version_mm() {
+	local flake="$SCRIPT_DIR/../flake.nix"
+	[ -f "$flake" ] || die "cannot locate flake.nix at $flake"
+	local mm
+	mm=$(sed -nE 's/^[[:space:]]*version = "v([0-9]+\.[0-9]+)\.[0-9]+[^"]*".*/\1/p' "$flake" | head -1)
+	[ -n "$mm" ] || die "could not parse version from $flake"
+	echo "$mm"
 }
 
-# resolve latest matching filename from cache.
+# fetch the index listing from BASE_URL. echoes on stdout, returns curl exit.
+fetch_listing() {
+	curl -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null
+}
+
+# echo the latest match for pin_re in the given listing (sorted by version).
+pick_latest() {
+	local listing="$1" pin_re="$2"
+	echo "$listing" | { grep -oE "$pin_re" || true; } | sort -V | tail -1
+}
+
+# warn if server listing has a major.minor strictly newer than repo's.
+warn_if_newer_available() {
+	local listing="$1" variant="$2" arch="$3" repo_mm="$4"
+	local any_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	local newest_mm
+	newest_mm=$(echo "$listing" | grep -oE "$any_re" |
+		sed -nE 's/.*-v([0-9]+\.[0-9]+)\.[0-9]+.*/\1/p' |
+		sort -uV | tail -1)
+	[ -n "$newest_mm" ] || return 0
+	[ "$newest_mm" = "$repo_mm" ] && return 0
+	# newest > repo iff the two-line sort -V puts newest last
+	if [ "$(printf '%s\n%s\n' "$repo_mm" "$newest_mm" | sort -V | tail -1)" = "$newest_mm" ]; then
+		warn "newer version v${newest_mm}.x available on server (this repo is v${repo_mm}.x)"
+		info "  bump version in flake.nix and pull to upgrade"
+	fi
+}
+
+# echo latest cached filename matching pin_re.
 resolve_from_cache() {
-	local variant="$1" arch="$2" version="$3" image_re="$4" cache_dir="$5"
-	local re="$image_re"
-	[ -n "$version" ] &&
-		re="sandbox-${variant}-${arch}-${version}-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	local cache_dir="$1" pin_re="$2"
 	find "$cache_dir" -maxdepth 1 -name '*.qcow2' 2>/dev/null |
 		while read -r p; do basename "$p"; done |
-		{ grep -E "$re" || true; } | sort -V | tail -1
+		{ grep -E "$pin_re" || true; } | sort -V | tail -1
 	return 0
 }
 
@@ -169,13 +190,24 @@ main() {
 	arch=$(normalize_arch "$arch")
 	require_cmd curl
 
-	local image_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	# any_re = all published versions (used by --list).
+	# pin_re = what we'll actually pull: default to repo's major.minor; --version overrides.
+	local any_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	local pin_re pin_desc repo_mm=""
+	if [ -n "$version" ]; then
+		pin_re="sandbox-${variant}-${arch}-${version}-[0-9]{8}\.[0-9a-f]+\.qcow2"
+		pin_desc="$version"
+	else
+		repo_mm=$(repo_version_mm)
+		pin_re="sandbox-${variant}-${arch}-v${repo_mm}\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+		pin_desc="v${repo_mm}.x"
+	fi
 
-	# list mode: listing is the product, network is mandatory
+	# list mode: show all published versions for variant+arch, not just the pin.
 	if [ "$list" = true ]; then
 		local listing
 		listing=$(curl -fsSL "$BASE_URL/")
-		echo "$listing" | grep -oE "$image_re" | sort -u
+		echo "$listing" | grep -oE "$any_re" | sort -u
 		return 0
 	fi
 
@@ -184,39 +216,46 @@ main() {
 	# --no-pull: skip network entirely, verify from cache
 	if [ "$no_pull" = true ]; then
 		local cached
-		cached=$(resolve_from_cache "$variant" "$arch" "$version" "$image_re" "$cache_dir")
+		cached=$(resolve_from_cache "$cache_dir" "$pin_re")
 		[ -n "$cached" ] ||
-			die "no cached image found for ${variant}/${arch}${version:+ $version}"
+			die "no cached image for ${variant}/${arch} ${pin_desc}"
 		info "cached: $cached"
 		verify_cached "$cache_dir/$cached"
 		echo "$cache_dir/$cached"
 		return 0
 	fi
 
-	# try to resolve latest filename from server; fall back to cache on network failure
-	local filename="" curl_rc=0
+	# try server; pick by pin_re. warn if newer major.minor exists on server.
+	local listing="" filename="" curl_rc=0
 	set +e
-	filename=$(resolve_from_server "$variant" "$arch" "$version" "$image_re")
+	listing=$(fetch_listing)
 	curl_rc=$?
 	set -e
 	case $curl_rc in
-	0) ;;
+	0)
+		filename=$(pick_latest "$listing" "$pin_re")
+		# skip the newer-warning when --version was explicit: user asked for it
+		[ -z "$version" ] &&
+			warn_if_newer_available "$listing" "$variant" "$arch" "$repo_mm"
+		;;
 	22) die "server returned HTTP 4xx fetching $BASE_URL/" ;;
 	*)
 		[ "$force" = true ] &&
 			die "cannot --force re-download: network unreachable (curl $curl_rc)"
 		warn "network unreachable (curl $curl_rc); falling back to cache"
-		filename=$(resolve_from_cache "$variant" "$arch" "$version" "$image_re" "$cache_dir")
+		;;
+	esac
+
+	# fall back to cache when the server either had no pin match or was unreachable
+	if [ -z "$filename" ]; then
+		filename=$(resolve_from_cache "$cache_dir" "$pin_re")
 		[ -n "$filename" ] ||
-			die "no cached image matching ${variant}/${arch}${version:+ $version}"
+			die "no image for ${variant}/${arch} ${pin_desc} (neither server nor cache)"
 		info "cached: $filename"
 		verify_cached "$cache_dir/$filename"
 		echo "$cache_dir/$filename"
 		return 0
-		;;
-	esac
-	[ -n "$filename" ] ||
-		die "no image found for ${variant}/${arch}${version:+ version $version}"
+	fi
 
 	local hashname signame url hash_url sig_url dest hash_dest sig_dest
 	hashname="${filename%.qcow2}.sha256"
