@@ -166,9 +166,9 @@ main() {
 		CLEANUP_OVERLAY=$(mktemp -d)
 		local overlay="$CLEANUP_OVERLAY/overlay.qcow2"
 		qemu-img create -f qcow2 -b "$(realpath "$image")" -F qcow2 "$overlay" "$disk_size"
-		drive_arg="file=$overlay,format=qcow2"
+		drive_arg="if=none,id=hd0,file=$overlay,format=qcow2,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
 	else
-		drive_arg="file=$image,format=qcow2,snapshot=on"
+		drive_arg="if=none,id=hd0,file=$image,format=qcow2,snapshot=on,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
 	fi
 
 	# auto-allocate ssh port for headless
@@ -192,6 +192,7 @@ main() {
 		-m "$memory"
 		-smp "$cpus"
 		-drive "$drive_arg"
+		-device "virtio-blk-pci,drive=hd0"
 		-nic "$nic_arg"
 		-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
 	)
