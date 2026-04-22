@@ -136,21 +136,24 @@ main() {
 
 	guest_arch=$(normalize_arch "$guest_arch")
 
-	# platform detection
-	local host_arch os accel qemu_bin
+	# platform detection — tcg,thread=multi so -smp parallelises across host cores
+	local host_arch os accel qemu_bin hw_accel=false
 	host_arch=$(uname -m)
 	os=$(uname -s)
-	accel="tcg"
+	accel="tcg,thread=multi"
 
 	case "$os" in
 	Linux)
-		[ -r /dev/kvm ] && accel="kvm"
+		if [ -r /dev/kvm ]; then
+			accel="kvm"
+			hw_accel=true
+		fi
 		;;
 	Darwin)
 		# hvf only works when guest matches host
 		case "$host_arch" in
-		aarch64 | arm64) [ "$guest_arch" = "aarch64" ] && accel="hvf" ;;
-		x86_64 | amd64) [ "$guest_arch" = "x86_64" ] && accel="hvf" ;;
+		aarch64 | arm64) [ "$guest_arch" = "aarch64" ] && accel="hvf" && hw_accel=true ;;
+		x86_64 | amd64) [ "$guest_arch" = "x86_64" ] && accel="hvf" && hw_accel=true ;;
 		esac
 		;;
 	esac
@@ -210,13 +213,13 @@ main() {
 	fi
 
 	# x86_64 with hardware accel — pass through host CPU features (AVX, etc.)
-	if [ "$guest_arch" = "x86_64" ] && [ "$accel" != "tcg" ]; then
+	if [ "$guest_arch" = "x86_64" ] && [ "$hw_accel" = true ]; then
 		qemu_args+=(-cpu host)
 	fi
 
 	# aarch64 guest needs machine type and uefi firmware
 	if [ "$guest_arch" = "aarch64" ]; then
-		if [ "$accel" = "hvf" ]; then
+		if [ "$hw_accel" = true ]; then
 			qemu_args+=(-machine virt -cpu host)
 		else
 			qemu_args+=(-machine virt -cpu max)
