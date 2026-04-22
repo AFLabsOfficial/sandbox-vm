@@ -180,9 +180,9 @@ main() {
 	fi
 
 	# build networking arg
-	local nic_arg="user"
+	local nic_arg="user,model=virtio-net-pci"
 	if [ -n "$ssh_port" ]; then
-		nic_arg="user,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
+		nic_arg="user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
 	fi
 
 	# build qemu command
