@@ -65,15 +65,19 @@ verify_signature() {
 }
 
 verify_hash() {
-	local file="$1" hash_file="$2"
+	local file="$1" hash_file="$2" expected_name="$3"
 	[ -f "$hash_file" ] || die "missing hash file: $hash_file"
 	info "verifying sha256..."
-	local expected actual
-	expected=$(awk '{print $1}' "$hash_file")
+	local expected_hash signed_name actual
+	expected_hash=$(awk '{print $1}' "$hash_file")
+	signed_name=$(awk '{print $2}' "$hash_file")
+	# bind hash to filename: signed .sha256 line is "<hash>  <name>";
+	# reject if the signed name isn't what we asked for
+	[ "$signed_name" = "$expected_name" ] ||
+		die "hash file binds to wrong filename: $signed_name (expected $expected_name)"
 	actual=$(sha256_file "$file")
-	if [ "$expected" != "$actual" ]; then
-		die "sha256 mismatch! expected: $expected, actual: $actual"
-	fi
+	[ "$expected_hash" = "$actual" ] ||
+		die "sha256 mismatch! expected: $expected_hash, actual: $actual"
 	info "sha256 ok: $actual"
 }
 
@@ -134,7 +138,7 @@ verify_cached() {
 	[ -f "$sig_path" ] ||
 		die "cached image $image_path has no .sha256.asc sidecar; re-run with --force"
 	verify_signature "$hash_path" "$sig_path"
-	verify_hash "$image_path" "$hash_path"
+	verify_hash "$image_path" "$hash_path" "$(basename "$image_path")"
 }
 
 main() {
@@ -299,7 +303,7 @@ main() {
 	verify_signature "$TMP_HASH" "$TMP_SIG"
 
 	curl "${CURL_OPTS[@]}" -f --progress-bar -o "$TMP_IMG" "$url"
-	verify_hash "$TMP_IMG" "$TMP_HASH"
+	verify_hash "$TMP_IMG" "$TMP_HASH" "$filename"
 
 	# atomic: cache only ever contains fully-verified triplets
 	mv "$TMP_IMG" "$dest"
