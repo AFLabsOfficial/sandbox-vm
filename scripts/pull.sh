@@ -9,6 +9,9 @@ setup_colors
 
 BASE_URL="https://dl.aflabs.org/iso"
 
+# refuse to follow any redirect off https, even if the server sends one
+CURL_OPTS=(--proto '=https' --proto-redir '=https')
+
 # globals for cleanup trap
 TMP_IMG=""
 TMP_HASH=""
@@ -86,7 +89,7 @@ repo_version_mm() {
 
 # fetch the index listing from BASE_URL. echoes on stdout, returns curl exit.
 fetch_listing() {
-	curl -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null
+	curl "${CURL_OPTS[@]}" -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null
 }
 
 # echo the latest match for pin_re in the given listing (sorted by version).
@@ -206,7 +209,7 @@ main() {
 	# list mode: show all published versions for variant+arch, not just the pin.
 	if [ "$list" = true ]; then
 		local listing
-		listing=$(curl -fsSL "$BASE_URL/")
+		listing=$(curl "${CURL_OPTS[@]}" -fsSL "$BASE_URL/")
 		echo "$listing" | grep -oE "$any_re" | sort -u
 		return 0
 	fi
@@ -281,13 +284,13 @@ main() {
 	TMP_SIG="$cache_dir/.pull-$$-$signame"
 
 	# sidecars first: a few KB, tells us early if the release is well-formed
-	curl -f -sSL -o "$TMP_HASH" "$hash_url" ||
+	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_HASH" "$hash_url" ||
 		die "failed to download $hash_url"
-	curl -f -sSL -o "$TMP_SIG" "$sig_url" ||
+	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_SIG" "$sig_url" ||
 		die "failed to download $sig_url"
 	verify_signature "$TMP_HASH" "$TMP_SIG"
 
-	curl -f --progress-bar -o "$TMP_IMG" "$url"
+	curl "${CURL_OPTS[@]}" -f --progress-bar -o "$TMP_IMG" "$url"
 	verify_hash "$TMP_IMG" "$TMP_HASH"
 
 	# atomic: cache only ever contains fully-verified triplets
