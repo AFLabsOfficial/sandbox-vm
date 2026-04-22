@@ -193,6 +193,7 @@ main() {
 		-smp "$cpus"
 		-drive "$drive_arg"
 		-device "virtio-blk-pci,drive=hd0"
+		-device virtio-rng-pci
 		-nic "$nic_arg"
 		-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
 	)
