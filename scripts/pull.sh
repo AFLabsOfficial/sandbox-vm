@@ -49,7 +49,7 @@ EOF
 }
 
 verify_signature() {
-	local hash_file="$1" sig_file="$2"
+	local hash_file="$1" sig_file="$2" keyring="$3"
 	[ -f "$sig_file" ] || die "missing signature file: $sig_file"
 
 	if ! command -v gpg &>/dev/null; then
@@ -60,11 +60,24 @@ verify_signature() {
 
 	local keys_file="$SCRIPT_DIR/../KEYS"
 	[ -f "$keys_file" ] || die "missing KEYS file: $keys_file"
-	# don't swallow stderr — imported-key diagnostics and real errors both matter
-	gpg --quiet --import "$keys_file" || die "failed to import KEYS"
+
+	# dedicated keyring so we don't pollute ~/.gnupg. re-import only when
+	# the committed KEYS file is newer than the cached keyring.
+	mkdir -p "$keyring"
+	chmod 700 "$keyring"
+	local keys_mtime=0 keyring_mtime=0
+	keys_mtime=$(stat -c '%Y' "$keys_file" 2>/dev/null || stat -f '%m' "$keys_file")
+	if [ -f "$keyring/pubring.kbx" ]; then
+		keyring_mtime=$(stat -c '%Y' "$keyring/pubring.kbx" 2>/dev/null ||
+			stat -f '%m' "$keyring/pubring.kbx")
+	fi
+	if [ "$keys_mtime" -gt "$keyring_mtime" ]; then
+		GNUPGHOME="$keyring" gpg --quiet --import "$keys_file" ||
+			die "failed to import KEYS"
+	fi
 
 	info "verifying signature..."
-	gpg --verify "$sig_file" "$hash_file" ||
+	GNUPGHOME="$keyring" gpg --verify "$sig_file" "$hash_file" ||
 		die "signature verification failed for $hash_file"
 	info "signature ok"
 }
@@ -126,9 +139,57 @@ repo_version_mm() {
 	echo "$mm"
 }
 
-# fetch the index listing from BASE_URL. echoes on stdout, returns curl exit.
+# fetch the index listing from BASE_URL. uses an etag cache so re-runs hit a
+# 304 and reuse the saved body when the server hasn't published anything new.
 fetch_listing() {
-	curl "${CURL_OPTS[@]}" -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null
+	local cache_dir="$1"
+	local etag="$cache_dir/.listing.etag"
+	local body="$cache_dir/.listing.body"
+	local tmp rc
+	tmp=$(mktemp "${body}.XXXXXX")
+	# run curl outside an `if !` — $? inside an inverted conditional is the
+	# exit of `!` (always 0), not the command's, and we need the real code.
+	curl "${CURL_OPTS[@]}" -fsSL --connect-timeout 5 \
+		--etag-save "$etag" --etag-compare "$etag" \
+		"$BASE_URL/" >"$tmp" 2>/dev/null
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$tmp"
+		return "$rc"
+	fi
+	# curl writes the body on 200 and nothing on 304; replace the cached body
+	# only when we got fresh bytes
+	if [ -s "$tmp" ]; then
+		mv "$tmp" "$body"
+	else
+		rm -f "$tmp"
+	fi
+	cat "$body" 2>/dev/null
+}
+
+# recent resolution cache: skip the http round-trip entirely when we picked
+# the same pin within the last TTL seconds.
+RESOLUTION_TTL=3600
+
+read_recent_resolution() {
+	local cache_dir="$1" variant="$2" arch="$3" pin_re="$4"
+	local stamp="$cache_dir/.last-resolve-$variant-$arch"
+	[ -f "$stamp" ] || return 1
+	local saved_at filename now
+	saved_at=$(sed -n 's/^stamp=//p' "$stamp")
+	filename=$(sed -n 's/^filename=//p' "$stamp")
+	[ -n "$saved_at" ] && [ -n "$filename" ] || return 1
+	now=$(date +%s)
+	[ $((now - saved_at)) -lt "$RESOLUTION_TTL" ] || return 1
+	# user may have bumped flake.nix version — make sure cache still matches pin
+	echo "$filename" | grep -qE "$pin_re" || return 1
+	echo "$filename"
+}
+
+write_recent_resolution() {
+	local cache_dir="$1" variant="$2" arch="$3" filename="$4"
+	local stamp="$cache_dir/.last-resolve-$variant-$arch"
+	printf 'filename=%s\nstamp=%s\n' "$filename" "$(date +%s)" >"$stamp"
 }
 
 # echo the latest match for pin_re in the given listing (sorted by version).
@@ -210,7 +271,9 @@ verify_cached() {
 		die "cached image $image_path has no .sha256 sidecar; re-run with --force"
 	[ -f "$sig_path" ] ||
 		die "cached image $image_path has no .sha256.asc sidecar; re-run with --force"
-	verify_signature "$hash_path" "$sig_path"
+	local cache_dir
+	cache_dir=$(dirname "$image_path")
+	verify_signature "$hash_path" "$sig_path" "$cache_dir/keyring"
 	verify_hash "$image_path" "$hash_path" "$(basename "$image_path")"
 	write_verified_stamp "$image_path" "$(awk '{print $1}' "$hash_path")"
 }
@@ -332,10 +395,22 @@ main() {
 		return 0
 	fi
 
+	# fast path: recent resolution cached and image on disk — skip network
+	if [ "$force" != true ]; then
+		local recent
+		recent=$(read_recent_resolution "$cache_dir" "$variant" "$arch" "$pin_re" || true)
+		if [ -n "$recent" ] && [ -f "$cache_dir/$recent" ]; then
+			info "recent resolution: $recent"
+			verify_cached "$cache_dir/$recent"
+			echo "$cache_dir/$recent"
+			return 0
+		fi
+	fi
+
 	# try server; pick by pin_re. warn if newer major.minor exists on server.
 	local listing="" filename="" curl_rc=0
 	set +e
-	listing=$(fetch_listing)
+	listing=$(fetch_listing "$cache_dir")
 	curl_rc=$?
 	set -e
 	case $curl_rc in
@@ -360,6 +435,7 @@ main() {
 			die "no image for ${variant}/${arch} ${pin_desc} (neither server nor cache)"
 		info "cached: $filename"
 		verify_cached "$cache_dir/$filename"
+		write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
 		echo "$cache_dir/$filename"
 		return 0
 	fi
@@ -378,6 +454,7 @@ main() {
 	if [ -f "$dest" ] && [ "$force" != true ]; then
 		info "cached: $filename"
 		verify_cached "$dest"
+		write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
 		echo "$dest"
 		return 0
 	fi
@@ -392,7 +469,7 @@ main() {
 		die "failed to download $hash_url"
 	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_SIG" "$sig_url" ||
 		die "failed to download $sig_url"
-	verify_signature "$TMP_HASH" "$TMP_SIG"
+	verify_signature "$TMP_HASH" "$TMP_SIG" "$cache_dir/keyring"
 
 	# qcow2: resume-capable. partial persists on interrupt so a re-run
 	# continues from where we stopped. --retry handles flaky networks.
@@ -419,6 +496,7 @@ main() {
 
 	# write stamp so future launches hit the fast path in verify_cached
 	write_verified_stamp "$dest" "$(awk '{print $1}' "$hash_dest")"
+	write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
 
 	echo "$dest"
 }
