@@ -72,7 +72,7 @@ main() {
 		[ -e /dev/kvm ] || die "/dev/kvm not found, KVM is required for image builds"
 
 		local host_arch
-		host_arch="$(uname -m)"
+		host_arch=$(normalize_arch "$(uname -m)")
 		[ "$arch" = "$host_arch" ] || die "--docker cannot cross-build (host is $host_arch, target is $arch), use nix with a remote builder"
 	else
 		require_cmd nix "use --docker to build without nix"
@@ -87,12 +87,23 @@ main() {
 		local uid gid
 		uid="$(id -u)"
 		gid="$(id -g)"
-		docker run --rm \
+		# pass the command via stdin to bash instead of interpolating into `bash -c`:
+		# keeps the shell quoting tight and avoids any risk of $package sneaking
+		# metacharacters into the outer shell
+		docker run --rm -i \
 			--device /dev/kvm \
 			-v sandbox-vm-nix:/nix \
 			-v "$REPO_DIR/dist:/output" \
+			-e PKG="$package" \
+			-e OUT_UID="$uid" \
+			-e OUT_GID="$gid" \
 			sandbox-vm-builder \
-			bash -c "nix build .#${package} && cp result/*.qcow2 /output/ && chown $uid:$gid /output/*.qcow2"
+			bash -s <<'EOF'
+set -euo pipefail
+nix build ".#${PKG}"
+cp result/*.qcow2 /output/
+chown "${OUT_UID}:${OUT_GID}" /output/*.qcow2
+EOF
 	else
 		info "building $variant $arch image via nix..."
 		nix build "$REPO_DIR#${package}"

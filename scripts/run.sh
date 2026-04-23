@@ -20,6 +20,15 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# returns 0 once the guest's sshd has started speaking (first bytes are "SSH-"),
+# non-zero while the port is either unreachable or still silent.
+awaiting_ssh_banner() {
+	local port="$1"
+	local banner
+	banner=$(timeout 2 bash -c "exec 3<>/dev/tcp/localhost/$port; head -c 4 <&3" 2>/dev/null) || return 1
+	[ "$banner" = "SSH-" ]
+}
+
 usage() {
 	cat <<EOF
 Usage: run.sh [image.qcow2] [options]
@@ -243,6 +252,9 @@ main() {
 
 	local fs_id=0 mount_path name tag
 	for mount_path in "${mounts[@]}"; do
+		# pre-check: bsd realpath silently accepts nonexistent paths,
+		# which would surface much later as an opaque qemu error
+		[ -e "$mount_path" ] || die "--mount path does not exist: $mount_path"
 		mount_path=$(realpath "$mount_path")
 		# qemu parses -virtfs as csv, a comma in the path would inject options
 		case "$mount_path" in
@@ -303,11 +315,15 @@ main() {
 
 	info "waiting for vm (port $ssh_port)..."
 	local attempts=0
-	while ! (echo >/dev/tcp/localhost/"$ssh_port") 2>/dev/null; do
+	# poll for the real SSH banner, not just TCP accept: qemu's user-mode
+	# networking accepts host-side the moment qemu starts, well before the
+	# guest sshd is listening. reading the first bytes waits until the
+	# guest really is speaking ssh.
+	while ! awaiting_ssh_banner "$ssh_port"; do
 		attempts=$((attempts + 1))
-		[ $attempts -gt 60 ] && die "vm did not become ready in 60s (see $qemu_log)"
+		[ $attempts -gt 120 ] && die "vm did not become ready in 60s (see $qemu_log)"
 		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly (see $qemu_log)"
-		sleep 1
+		sleep 0.5
 	done
 
 	ssh -p "$ssh_port" -t \

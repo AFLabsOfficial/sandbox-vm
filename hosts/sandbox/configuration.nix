@@ -45,7 +45,9 @@
   };
 
   # ensure .config exists with correct ownership before automount
-  systemd.tmpfiles.rules = [ "d /home/sandbox/.config 0755 sandbox users -" ];
+  systemd.tmpfiles.rules = [
+    "d ${config.users.users.sandbox.home}/.config 0700 sandbox users -"
+  ];
 
   # writable claude config via 9p, direct when host uids match, bindfs fallback otherwise
   systemd.services.claude-9p-mount = {

@@ -43,8 +43,13 @@ let
     log "uid $owner != $EXPECTED_UID, remapping via bindfs"
     ${pkgs.util-linux}/bin/umount "$TARGET"
 
+    # staging holds the raw pre-remap 9p mount; lock it down so a second
+    # user on the guest can't read through it to the host fs
+    mkdir -p /mnt/9p
+    chmod 700 /mnt/9p
     staging="/mnt/9p/$TAG"
     mkdir -p "$staging"
+    chmod 700 "$staging"
     if ! ${pkgs.util-linux}/bin/mountpoint -q "$staging"; then
       if ! ${pkgs.util-linux}/bin/mount -t 9p "$TAG" "$staging" \
           -o trans=virtio,version=9p2000.L; then
