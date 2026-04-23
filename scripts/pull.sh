@@ -9,12 +9,18 @@ setup_colors
 
 BASE_URL="https://dl.aflabs.org/iso"
 
+# refuse to follow any redirect off https, even if the server sends one
+CURL_OPTS=(--proto '=https' --proto-redir '=https')
+
 # globals for cleanup trap
-TMP_IMG=""
+# note: image partial is not tracked here — it persists across runs so a
+# re-run can resume via curl -C -. it's only removed when verify fails,
+# via UNVERIFIED_PARTIAL below.
 TMP_HASH=""
 TMP_SIG=""
+UNVERIFIED_PARTIAL=""
 cleanup() {
-	[ -n "$TMP_IMG" ] && rm -f "$TMP_IMG"
+	[ -n "$UNVERIFIED_PARTIAL" ] && rm -f "$UNVERIFIED_PARTIAL"
 	[ -n "$TMP_HASH" ] && rm -f "$TMP_HASH"
 	[ -n "$TMP_SIG" ] && rm -f "$TMP_SIG"
 	return 0
@@ -30,9 +36,11 @@ Arguments:
 
 Options:
   --arch <arch>        x86_64 or aarch64 (default: auto-detect host)
-  --version <ver>      Specific version e.g. "v0.1.0" (default: latest)
-  --list               List available versions for variant+arch
+  --version <ver>      Pin to an exact version e.g. "v0.1.0"
+                       (default: latest patch of this repo's major.minor)
+  --list               List all available versions for variant+arch
   --no-pull            Use latest cached image (no network)
+  --prune [N]          Keep only latest N (default 3) per variant+arch, remove the rest
   --cache-dir <path>   Override cache directory
   --force              Force re-download even if cached
   -h, --help           Show usage
@@ -41,7 +49,7 @@ EOF
 }
 
 verify_signature() {
-	local hash_file="$1" sig_file="$2"
+	local hash_file="$1" sig_file="$2" keyring="$3"
 	[ -f "$sig_file" ] || die "missing signature file: $sig_file"
 
 	if ! command -v gpg &>/dev/null; then
@@ -52,70 +60,228 @@ verify_signature() {
 
 	local keys_file="$SCRIPT_DIR/../KEYS"
 	[ -f "$keys_file" ] || die "missing KEYS file: $keys_file"
-	gpg --import "$keys_file" 2>/dev/null || die "failed to import KEYS"
+
+	# dedicated keyring so we don't pollute ~/.gnupg. re-import only when
+	# the committed KEYS file is newer than the cached keyring.
+	mkdir -p "$keyring"
+	chmod 700 "$keyring"
+	local keys_mtime=0 keyring_mtime=0
+	keys_mtime=$(stat -c '%Y' "$keys_file" 2>/dev/null || stat -f '%m' "$keys_file")
+	if [ -f "$keyring/pubring.kbx" ]; then
+		keyring_mtime=$(stat -c '%Y' "$keyring/pubring.kbx" 2>/dev/null ||
+			stat -f '%m' "$keyring/pubring.kbx")
+	fi
+	if [ "$keys_mtime" -gt "$keyring_mtime" ]; then
+		GNUPGHOME="$keyring" gpg --quiet --import "$keys_file" ||
+			die "failed to import KEYS"
+	fi
 
 	info "verifying signature..."
-	gpg --verify "$sig_file" "$hash_file" 2>/dev/null ||
+	GNUPGHOME="$keyring" gpg --verify "$sig_file" "$hash_file" ||
 		die "signature verification failed for $hash_file"
 	info "signature ok"
 }
 
 verify_hash() {
-	local file="$1" hash_file="$2"
+	local file="$1" hash_file="$2" expected_name="$3"
 	[ -f "$hash_file" ] || die "missing hash file: $hash_file"
 	info "verifying sha256..."
-	local expected actual
-	expected=$(awk '{print $1}' "$hash_file")
+	local expected_hash signed_name actual
+	expected_hash=$(awk '{print $1}' "$hash_file")
+	signed_name=$(awk '{print $2}' "$hash_file")
+	# bind hash to filename: signed .sha256 line is "<hash>  <name>";
+	# reject if the signed name isn't what we asked for
+	[ "$signed_name" = "$expected_name" ] ||
+		die "hash file binds to wrong filename: $signed_name (expected $expected_name)"
 	actual=$(sha256_file "$file")
-	if [ "$expected" != "$actual" ]; then
-		die "sha256 mismatch! expected: $expected, actual: $actual"
-	fi
+	[ "$expected_hash" = "$actual" ] ||
+		die "sha256 mismatch! expected: $expected_hash, actual: $actual"
 	info "sha256 ok: $actual"
 }
 
-# resolve latest matching filename from server listing.
-# echoes filename on stdout; returns curl exit code on failure.
-resolve_from_server() {
-	local variant="$1" arch="$2" version="$3" image_re="$4"
-	local listing
-	listing=$(curl -fsSL --connect-timeout 5 "$BASE_URL/" 2>/dev/null) || return $?
-	if [ -n "$version" ]; then
-		echo "$listing" | { grep -oE "$image_re" || true; } |
-			{ grep "sandbox-${variant}-${arch}-${version}-" || true; } | head -1
-	else
-		echo "$listing" | { grep -oE "$image_re" || true; } | sort -V | tail -1
-	fi
+# portable size+mtime query — echoes "<size> <mtime>" to stdout.
+stat_size_mtime() {
+	stat -c '%s %Y' "$1" 2>/dev/null || stat -f '%z %m' "$1"
+}
+
+# write a .verified stamp next to a freshly-verified image. future cache
+# hits compare size+mtime against this stamp and skip re-running sha256.
+write_verified_stamp() {
+	local file="$1" hash="$2"
+	local sm
+	sm=$(stat_size_mtime "$file")
+	printf 'sha256=%s\nsize=%s\nmtime=%s\n' \
+		"$hash" "${sm%% *}" "${sm##* }" >"${file}.verified"
+}
+
+# return 0 if file has a .verified stamp whose size+mtime match current state.
+check_verified_stamp() {
+	local file="$1"
+	local stamp="${file}.verified"
+	[ -f "$stamp" ] || return 1
+	local sm expected_size expected_mtime
+	sm=$(stat_size_mtime "$file")
+	expected_size=$(sed -n 's/^size=//p' "$stamp")
+	expected_mtime=$(sed -n 's/^mtime=//p' "$stamp")
+	[ -n "$expected_size" ] || return 1
+	[ "${sm%% *}" = "$expected_size" ] || return 1
+	[ "${sm##* }" = "$expected_mtime" ] || return 1
 	return 0
 }
 
-# resolve latest matching filename from cache.
+# extract vMAJOR.MINOR from flake.nix's version literal, e.g. "0.5".
+repo_version_mm() {
+	local flake="$SCRIPT_DIR/../flake.nix"
+	[ -f "$flake" ] || die "cannot locate flake.nix at $flake"
+	local mm
+	mm=$(sed -nE 's/^[[:space:]]*version = "v([0-9]+\.[0-9]+)\.[0-9]+[^"]*".*/\1/p' "$flake" | head -1)
+	[ -n "$mm" ] || die "could not parse version from $flake"
+	echo "$mm"
+}
+
+# fetch the index listing from BASE_URL. uses an etag cache so re-runs hit a
+# 304 and reuse the saved body when the server hasn't published anything new.
+fetch_listing() {
+	local cache_dir="$1"
+	local etag="$cache_dir/.listing.etag"
+	local body="$cache_dir/.listing.body"
+	local tmp rc
+	tmp=$(mktemp "${body}.XXXXXX")
+	# run curl outside an `if !` — $? inside an inverted conditional is the
+	# exit of `!` (always 0), not the command's, and we need the real code.
+	curl "${CURL_OPTS[@]}" -fsSL --connect-timeout 5 \
+		--etag-save "$etag" --etag-compare "$etag" \
+		"$BASE_URL/" >"$tmp" 2>/dev/null
+	rc=$?
+	if [ "$rc" -ne 0 ]; then
+		rm -f "$tmp"
+		return "$rc"
+	fi
+	# curl writes the body on 200 and nothing on 304; replace the cached body
+	# only when we got fresh bytes
+	if [ -s "$tmp" ]; then
+		mv "$tmp" "$body"
+	else
+		rm -f "$tmp"
+	fi
+	cat "$body" 2>/dev/null
+}
+
+# recent resolution cache: skip the http round-trip entirely when we picked
+# the same pin within the last TTL seconds.
+RESOLUTION_TTL=3600
+
+read_recent_resolution() {
+	local cache_dir="$1" variant="$2" arch="$3" pin_re="$4"
+	local stamp="$cache_dir/.last-resolve-$variant-$arch"
+	[ -f "$stamp" ] || return 1
+	local saved_at filename now
+	saved_at=$(sed -n 's/^stamp=//p' "$stamp")
+	filename=$(sed -n 's/^filename=//p' "$stamp")
+	[ -n "$saved_at" ] && [ -n "$filename" ] || return 1
+	now=$(date +%s)
+	[ $((now - saved_at)) -lt "$RESOLUTION_TTL" ] || return 1
+	# user may have bumped flake.nix version — make sure cache still matches pin
+	echo "$filename" | grep -qE "$pin_re" || return 1
+	echo "$filename"
+}
+
+write_recent_resolution() {
+	local cache_dir="$1" variant="$2" arch="$3" filename="$4"
+	local stamp="$cache_dir/.last-resolve-$variant-$arch"
+	printf 'filename=%s\nstamp=%s\n' "$filename" "$(date +%s)" >"$stamp"
+}
+
+# echo the latest match for pin_re in the given listing (sorted by version).
+pick_latest() {
+	local listing="$1" pin_re="$2"
+	echo "$listing" | { grep -oE "$pin_re" || true; } | sort -V | tail -1
+}
+
+# warn if server listing has a major.minor strictly newer than repo's.
+warn_if_newer_available() {
+	local listing="$1" variant="$2" arch="$3" repo_mm="$4"
+	local any_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	local newest_mm
+	newest_mm=$(echo "$listing" | grep -oE "$any_re" |
+		sed -nE 's/.*-v([0-9]+\.[0-9]+)\.[0-9]+.*/\1/p' |
+		sort -uV | tail -1)
+	[ -n "$newest_mm" ] || return 0
+	[ "$newest_mm" = "$repo_mm" ] && return 0
+	# newest > repo iff the two-line sort -V puts newest last
+	if [ "$(printf '%s\n%s\n' "$repo_mm" "$newest_mm" | sort -V | tail -1)" = "$newest_mm" ]; then
+		warn "newer version v${newest_mm}.x available on server (this repo is v${repo_mm}.x)"
+		info "  bump version in flake.nix and pull to upgrade"
+	fi
+}
+
+# echo latest cached filename matching pin_re.
 resolve_from_cache() {
-	local variant="$1" arch="$2" version="$3" image_re="$4" cache_dir="$5"
-	local re="$image_re"
-	[ -n "$version" ] &&
-		re="sandbox-${variant}-${arch}-${version}-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	local cache_dir="$1" pin_re="$2"
 	find "$cache_dir" -maxdepth 1 -name '*.qcow2' 2>/dev/null |
 		while read -r p; do basename "$p"; done |
-		{ grep -E "$re" || true; } | sort -V | tail -1
+		{ grep -E "$pin_re" || true; } | sort -V | tail -1
 	return 0
 }
 
-# verify a cached image against its sidecars.
+# drop all but the latest N cached images per (variant, arch) group,
+# along with their sha256/asc/verified/partial siblings.
+prune_cache() {
+	local cache_dir="$1" keep="$2"
+	local removed=0 groups group files total drop_count to_drop f base
+	groups=$(find "$cache_dir" -maxdepth 1 -name 'sandbox-*-v*.qcow2' 2>/dev/null |
+		while read -r p; do basename "$p"; done |
+		sed -nE 's/^(sandbox-[^-]+-[^-]+)-v[0-9]+.*/\1/p' |
+		sort -u)
+	for group in $groups; do
+		files=$(find "$cache_dir" -maxdepth 1 -name "${group}-v*.qcow2" 2>/dev/null |
+			while read -r p; do basename "$p"; done | sort -V)
+		total=$(printf '%s\n' "$files" | grep -c . || true)
+		[ "$total" -le "$keep" ] && continue
+		drop_count=$((total - keep))
+		to_drop=$(printf '%s\n' "$files" | head -n "$drop_count")
+		while IFS= read -r f; do
+			[ -n "$f" ] || continue
+			base="${f%.qcow2}"
+			info "pruning $f"
+			rm -f "$cache_dir/$f" \
+				"$cache_dir/${base}.sha256" \
+				"$cache_dir/${base}.sha256.asc" \
+				"$cache_dir/${f}.verified" \
+				"$cache_dir/${f}.partial"
+			removed=$((removed + 1))
+		done <<<"$to_drop"
+	done
+	info "pruned $removed image(s), kept $keep per variant+arch"
+}
+
+# verify a cached image against its sidecars. fast-paths via .verified
+# stamp when size+mtime haven't changed since the last full verify.
 verify_cached() {
 	local image_path="$1"
 	local hash_path="${image_path%.qcow2}.sha256"
 	local sig_path="${hash_path}.asc"
+
+	if check_verified_stamp "$image_path"; then
+		info "verified stamp fresh: $(basename "$image_path")"
+		return 0
+	fi
+
 	[ -f "$hash_path" ] ||
 		die "cached image $image_path has no .sha256 sidecar; re-run with --force"
 	[ -f "$sig_path" ] ||
 		die "cached image $image_path has no .sha256.asc sidecar; re-run with --force"
-	verify_signature "$hash_path" "$sig_path"
-	verify_hash "$image_path" "$hash_path"
+	local cache_dir
+	cache_dir=$(dirname "$image_path")
+	verify_signature "$hash_path" "$sig_path" "$cache_dir/keyring"
+	verify_hash "$image_path" "$hash_path" "$(basename "$image_path")"
+	write_verified_stamp "$image_path" "$(awk '{print $1}' "$hash_path")"
 }
 
 main() {
 	local cache_dir="${XDG_CACHE_HOME:-$HOME/.cache}/sandbox-vm"
 	local arch="" version="" list=false force=false no_pull=false variant=""
+	local prune=false prune_keep=3
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -134,6 +300,16 @@ main() {
 		--no-pull)
 			no_pull=true
 			shift
+			;;
+		--prune)
+			prune=true
+			# optional int: --prune 5
+			if [[ "${2:-}" =~ ^[0-9]+$ ]]; then
+				prune_keep="$2"
+				shift 2
+			else
+				shift
+			fi
 			;;
 		--cache-dir)
 			cache_dir="$2"
@@ -160,22 +336,48 @@ main() {
 		esac
 	done
 
+	# --prune doesn't need a variant; it operates on the whole cache
+	if [ "$prune" = true ]; then
+		mkdir -p "$cache_dir"
+		prune_cache "$cache_dir" "$prune_keep"
+		return 0
+	fi
+
 	[ -n "$variant" ] || die "variant is required (headless or gui)"
 	case "$variant" in
 	headless | gui) ;;
 	*) die "variant must be headless or gui, got: $variant" ;;
 	esac
 
+	# reject anything that isn't strict semver before it hits a regex interpolation
+	if [ -n "$version" ]; then
+		[[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] ||
+			die "--version must be a strict semver like v0.5.1, got: $version"
+	fi
+
 	arch=$(normalize_arch "$arch")
 	require_cmd curl
 
-	local image_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	# any_re = all published versions (used by --list).
+	# pin_re = what we'll actually pull: default to repo's major.minor; --version overrides.
+	local any_re="sandbox-${variant}-${arch}-v[0-9]+\.[0-9]+\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+	local pin_re pin_desc repo_mm=""
+	if [ -n "$version" ]; then
+		# escape dots so the literal version doesn't match too broadly as ERE
+		local version_re="${version//./\\.}"
+		pin_re="sandbox-${variant}-${arch}-${version_re}-[0-9]{8}\.[0-9a-f]+\.qcow2"
+		pin_desc="$version"
+	else
+		repo_mm=$(repo_version_mm)
+		pin_re="sandbox-${variant}-${arch}-v${repo_mm}\.[0-9]+[^-]*-[0-9]{8}\.[0-9a-f]+\.qcow2"
+		pin_desc="v${repo_mm}.x"
+	fi
 
-	# list mode: listing is the product, network is mandatory
+	# list mode: show all published versions for variant+arch, not just the pin.
 	if [ "$list" = true ]; then
 		local listing
-		listing=$(curl -fsSL "$BASE_URL/")
-		echo "$listing" | grep -oE "$image_re" | sort -u
+		listing=$(curl "${CURL_OPTS[@]}" -fsSL "$BASE_URL/")
+		echo "$listing" | grep -oE "$any_re" | sort -u
 		return 0
 	fi
 
@@ -184,39 +386,59 @@ main() {
 	# --no-pull: skip network entirely, verify from cache
 	if [ "$no_pull" = true ]; then
 		local cached
-		cached=$(resolve_from_cache "$variant" "$arch" "$version" "$image_re" "$cache_dir")
+		cached=$(resolve_from_cache "$cache_dir" "$pin_re")
 		[ -n "$cached" ] ||
-			die "no cached image found for ${variant}/${arch}${version:+ $version}"
+			die "no cached image for ${variant}/${arch} ${pin_desc}"
 		info "cached: $cached"
 		verify_cached "$cache_dir/$cached"
 		echo "$cache_dir/$cached"
 		return 0
 	fi
 
-	# try to resolve latest filename from server; fall back to cache on network failure
-	local filename="" curl_rc=0
+	# fast path: recent resolution cached and image on disk — skip network
+	if [ "$force" != true ]; then
+		local recent
+		recent=$(read_recent_resolution "$cache_dir" "$variant" "$arch" "$pin_re" || true)
+		if [ -n "$recent" ] && [ -f "$cache_dir/$recent" ]; then
+			info "recent resolution: $recent"
+			verify_cached "$cache_dir/$recent"
+			echo "$cache_dir/$recent"
+			return 0
+		fi
+	fi
+
+	# try server; pick by pin_re. warn if newer major.minor exists on server.
+	local listing="" filename="" curl_rc=0
 	set +e
-	filename=$(resolve_from_server "$variant" "$arch" "$version" "$image_re")
+	listing=$(fetch_listing "$cache_dir")
 	curl_rc=$?
 	set -e
 	case $curl_rc in
-	0) ;;
+	0)
+		filename=$(pick_latest "$listing" "$pin_re")
+		# skip the newer-warning when --version was explicit: user asked for it
+		[ -z "$version" ] &&
+			warn_if_newer_available "$listing" "$variant" "$arch" "$repo_mm"
+		;;
 	22) die "server returned HTTP 4xx fetching $BASE_URL/" ;;
 	*)
 		[ "$force" = true ] &&
 			die "cannot --force re-download: network unreachable (curl $curl_rc)"
 		warn "network unreachable (curl $curl_rc); falling back to cache"
-		filename=$(resolve_from_cache "$variant" "$arch" "$version" "$image_re" "$cache_dir")
-		[ -n "$filename" ] ||
-			die "no cached image matching ${variant}/${arch}${version:+ $version}"
-		info "cached: $filename"
-		verify_cached "$cache_dir/$filename"
-		echo "$cache_dir/$filename"
-		return 0
 		;;
 	esac
-	[ -n "$filename" ] ||
-		die "no image found for ${variant}/${arch}${version:+ version $version}"
+
+	# fall back to cache when the server either had no pin match or was unreachable
+	if [ -z "$filename" ]; then
+		filename=$(resolve_from_cache "$cache_dir" "$pin_re")
+		[ -n "$filename" ] ||
+			die "no image for ${variant}/${arch} ${pin_desc} (neither server nor cache)"
+		info "cached: $filename"
+		verify_cached "$cache_dir/$filename"
+		write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
+		echo "$cache_dir/$filename"
+		return 0
+	fi
 
 	local hashname signame url hash_url sig_url dest hash_dest sig_dest
 	hashname="${filename%.qcow2}.sha256"
@@ -232,30 +454,49 @@ main() {
 	if [ -f "$dest" ] && [ "$force" != true ]; then
 		info "cached: $filename"
 		verify_cached "$dest"
+		write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
 		echo "$dest"
 		return 0
 	fi
 
 	info "downloading: $filename"
-	TMP_IMG="$cache_dir/.pull-$$-$filename"
+	local partial="$dest.partial"
 	TMP_HASH="$cache_dir/.pull-$$-$hashname"
 	TMP_SIG="$cache_dir/.pull-$$-$signame"
 
 	# sidecars first: a few KB, tells us early if the release is well-formed
-	curl -f -sSL -o "$TMP_HASH" "$hash_url" ||
+	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_HASH" "$hash_url" ||
 		die "failed to download $hash_url"
-	curl -f -sSL -o "$TMP_SIG" "$sig_url" ||
+	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_SIG" "$sig_url" ||
 		die "failed to download $sig_url"
-	verify_signature "$TMP_HASH" "$TMP_SIG"
+	verify_signature "$TMP_HASH" "$TMP_SIG" "$cache_dir/keyring"
 
-	curl -f --progress-bar -o "$TMP_IMG" "$url"
-	verify_hash "$TMP_IMG" "$TMP_HASH"
+	# qcow2: resume-capable. partial persists on interrupt so a re-run
+	# continues from where we stopped. --retry handles flaky networks.
+	curl "${CURL_OPTS[@]}" -f --progress-bar -C - --retry 5 --retry-connrefused --retry-delay 3 \
+		-o "$partial" "$url" ||
+		die "download failed (partial kept at $partial for resume)"
 
-	# atomic: cache only ever contains fully-verified triplets
-	mv "$TMP_IMG" "$dest"
+	# curl succeeded — from here on, partial is removable on failure
+	UNVERIFIED_PARTIAL="$partial"
+	verify_hash "$partial" "$TMP_HASH" "$filename"
+	UNVERIFIED_PARTIAL=""
+
+	# promote: track $dest via UNVERIFIED_PARTIAL and retarget each TMP_ at
+	# its final path, so the cleanup trap unwinds any partially-promoted
+	# triplet if we die between moves
+	mv "$partial" "$dest"
+	UNVERIFIED_PARTIAL="$dest"
 	mv "$TMP_HASH" "$hash_dest"
+	TMP_HASH="$hash_dest"
 	mv "$TMP_SIG" "$sig_dest"
-	TMP_IMG="" TMP_HASH="" TMP_SIG=""
+	TMP_SIG="$sig_dest"
+	# full triplet present — clear all trackers so cleanup leaves it alone
+	UNVERIFIED_PARTIAL="" TMP_HASH="" TMP_SIG=""
+
+	# write stamp so future launches hit the fast path in verify_cached
+	write_verified_stamp "$dest" "$(awk '{print $1}' "$hash_dest")"
+	write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
 
 	echo "$dest"
 }
