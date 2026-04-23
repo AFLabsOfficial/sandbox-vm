@@ -1,7 +1,8 @@
 {
   pkgs,
   lib,
-  gui ? false,
+  config,
+  gui,
   ...
 }:
 {
@@ -28,7 +29,7 @@
 
   programs.zsh = {
     enable = true;
-    dotDir = "/home/sandbox/.config/zsh";
+    dotDir = "${config.xdg.configHome}/zsh";
     shellAliases.dsp = "claude --dangerously-skip-permissions";
   };
 

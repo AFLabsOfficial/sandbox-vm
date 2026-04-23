@@ -22,6 +22,8 @@
     }:
 
     let
+      inherit (nixpkgs) lib;
+
       version = "v0.5.1";
 
       systems = [
@@ -30,26 +32,27 @@
         "x86_64-darwin"
         "aarch64-darwin"
       ];
-      forAllSystems = nixpkgs.lib.genAttrs systems;
+      forAllSystems = lib.genAttrs systems;
 
-      my-lib = import ./lib { inherit (nixpkgs) lib; };
+      my-lib = import ./lib { inherit lib; };
 
       pkgsFor = system: import nixpkgs {
         inherit system;
         config.allowUnfree = true;
       };
 
-      packagesFor = system: import ./packages { inherit my-lib; inherit (nixpkgs) lib; } { pkgs = pkgsFor system; };
+      packagesFor = system: import ./packages { inherit my-lib lib; } { pkgs = pkgsFor system; };
 
       mkSandbox =
         system:
         {
           gui ? false,
         }:
-        nixpkgs.lib.nixosSystem {
+        lib.nixosSystem {
           inherit system;
           modules = [
             { nixpkgs.config.allowUnfree = true; }
+            { vm-guest.headless = !gui; }
             ./nix.nix
             ./hosts/sandbox/configuration.nix
             ./modules/nixos/vm-guest.nix
@@ -66,11 +69,10 @@
               home-manager.users.sandbox = import ./users/sandbox/home-manager.nix;
             }
           ]
-          ++ nixpkgs.lib.optionals gui [
+          ++ lib.optionals gui [
             inputs.stylix.nixosModules.stylix
             ./modules/nixos/theme.nix
             {
-              vm-guest.headless = nixpkgs.lib.mkForce false;
               desktop = {
                 enable = true;
                 autoLogin = "sandbox";
@@ -78,9 +80,7 @@
             }
           ];
           specialArgs = {
-            inherit inputs;
-            inherit gui;
-            inherit version;
+            inherit inputs gui version;
           };
         };
 
@@ -105,11 +105,11 @@
       packages = forAllSystems (
         system:
         packagesFor system
-        // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+        // lib.optionalAttrs (system == "x86_64-linux") {
           sandbox-headless = mkImage "x86_64-linux" { } "qemu";
           sandbox-gui = mkImage "x86_64-linux" { gui = true; } "qemu";
         }
-        // nixpkgs.lib.optionalAttrs (system == "aarch64-linux") {
+        // lib.optionalAttrs (system == "aarch64-linux") {
           sandbox-headless = mkImage "aarch64-linux" { } "qemu-efi";
           sandbox-gui = mkImage "aarch64-linux" { gui = true; } "qemu-efi";
         }

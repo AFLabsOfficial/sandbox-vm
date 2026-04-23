@@ -3,8 +3,8 @@
   lib,
   inputs,
   config,
-  gui ? false,
-  version ? "unknown",
+  gui,
+  version,
   ...
 }:
 {
@@ -14,10 +14,7 @@
 
   networking.hostName = "sandbox";
 
-  vm-guest = {
-    enable = true;
-    headless = true;
-  };
+  vm-guest.enable = true;
 
   localisation = {
     enable = true;
@@ -73,12 +70,12 @@
         done
         [ "$have_tag" = "1" ] || exit 0
 
-        exec ${config.vm-9p-automount.mountShareScript} claude /home/sandbox/.config/claude
+        exec ${config.vm-9p-automount.mountShareScript} claude ${config.users.users.sandbox.home}/.config/claude
       '';
     };
   };
 
-  environment.sessionVariables.CLAUDE_CONFIG_DIR = "/home/sandbox/.config/claude";
+  environment.sessionVariables.CLAUDE_CONFIG_DIR = "${config.users.users.sandbox.home}/.config/claude";
 
   # accept any ssh key (ephemeral localhost-only vm)
   # script lives under /etc/ssh so sshd's parent-directory ownership check passes
@@ -132,8 +129,7 @@
       hash = builtins.elemAt parts 3;
       variant = if gui then "gui" else "headless";
       name = "sandbox-${variant}-${arch}-${version}-${date}.${hash}";
-    in
-    let
+
       imageOverride =
         { config, modulesPath, ... }:
         {
