@@ -243,6 +243,9 @@ main() {
 
 	local fs_id=0 mount_path name tag
 	for mount_path in "${mounts[@]}"; do
+		# pre-check: bsd realpath silently accepts nonexistent paths,
+		# which would surface much later as an opaque qemu error
+		[ -e "$mount_path" ] || die "--mount path does not exist: $mount_path"
 		mount_path=$(realpath "$mount_path")
 		# qemu parses -virtfs as csv, a comma in the path would inject options
 		case "$mount_path" in
