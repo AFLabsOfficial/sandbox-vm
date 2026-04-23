@@ -59,6 +59,12 @@ stdenv.mkDerivation {
   postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
     patchelf --set-interpreter ${stdenv.cc.bintools.dynamicLinker} $out/bin/claude
   '' + ''
+    # NOTE:(@janezicmatej) DISABLE_AUTOUPDATER pins the binary to the nix
+    # store path so reboots stay reproducible; DISABLE_INSTALLATION_CHECKS
+    # stops the "install me with npm" prompts. FORCE_AUTOUPDATE_PLUGINS is
+    # deliberately left on — plugin refresh is the one channel we still
+    # want fresh per session (see T42 investigation for the bun sfx egress
+    # surface)
     wrapProgram $out/bin/claude \
       --set DISABLE_AUTOUPDATER 1 \
       --set-default FORCE_AUTOUPDATE_PLUGINS 1 \
