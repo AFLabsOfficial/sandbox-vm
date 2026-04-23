@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # shared helpers for sandbox-vm scripts
 
+# shellcheck disable=SC2034 # used by sourcing scripts
 setup_colors() {
 	if [ -t 2 ]; then
 		red=$'\033[31m'
@@ -12,7 +13,6 @@ setup_colors() {
 	else
 		red="" green="" yellow="" cyan="" bold="" reset=""
 	fi
-	export red green yellow cyan bold reset
 }
 
 die() {

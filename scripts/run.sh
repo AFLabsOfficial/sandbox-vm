@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 # returns 0 once the guest's sshd has started speaking (first bytes are "SSH-"),
-# non-zero while the port is either unreachable or still silent.
+# non-zero while the port is either unreachable or still silent
 awaiting_ssh_banner() {
 	local port="$1"
 	local banner
@@ -153,6 +153,8 @@ main() {
 
 	case "$os" in
 	Linux)
+		# -r (readable) not -e (exists): we use kvm in-process so access is the
+		# actual prerequisite; build.sh uses -e because docker mounts the device
 		if [ -r /dev/kvm ]; then
 			accel="kvm"
 			hw_accel=true
@@ -318,7 +320,7 @@ main() {
 	# poll for the real SSH banner, not just TCP accept: qemu's user-mode
 	# networking accepts host-side the moment qemu starts, well before the
 	# guest sshd is listening. reading the first bytes waits until the
-	# guest really is speaking ssh.
+	# guest really is speaking ssh
 	while ! awaiting_ssh_banner "$ssh_port"; do
 		attempts=$((attempts + 1))
 		[ $attempts -gt 120 ] && die "vm did not become ready in 60s (see $qemu_log)"
