@@ -30,6 +30,6 @@ pull variant *ARGS:
 list-images variant="headless":
     bash scripts/pull.sh --list {{variant}}
 
-# ssh into running sandbox
+# ssh into running sandbox (port is positional; pass extra ssh flags after: `just ssh 22022 -L ...`)
 ssh port="22022" *ARGS:
-    ssh -p {{port}} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null {{ARGS}} sandbox@localhost
+    ssh -p {{port}} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR {{ARGS}} sandbox@localhost
