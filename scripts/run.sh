@@ -11,11 +11,20 @@ setup_colors
 QEMU_PID=""
 CLEANUP_OVERLAY=""
 CLEANUP_TMPDIR=""
+VM_READY=false
 
 cleanup() {
 	[ -n "$QEMU_PID" ] && kill "$QEMU_PID" 2>/dev/null && wait "$QEMU_PID" 2>/dev/null
 	[ -n "$CLEANUP_OVERLAY" ] && rm -rf "$CLEANUP_OVERLAY"
-	[ -n "$CLEANUP_TMPDIR" ] && rm -rf "$CLEANUP_TMPDIR"
+	# preserve the tmpdir on abnormal exit so the qemu log survives for
+	# inspection; normal cleanup happens once the vm reached the user
+	if [ -n "$CLEANUP_TMPDIR" ]; then
+		if [ "$VM_READY" = true ]; then
+			rm -rf "$CLEANUP_TMPDIR"
+		else
+			echo "qemu log preserved: $CLEANUP_TMPDIR/qemu.log" >&2
+		fi
+	fi
 	return 0
 }
 trap cleanup EXIT
@@ -320,10 +329,11 @@ main() {
 	# guest really is speaking ssh
 	while ! awaiting_ssh_banner "$ssh_port"; do
 		attempts=$((attempts + 1))
-		[ $attempts -gt 120 ] && die "vm did not become ready in 60s (see $qemu_log)"
-		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly (see $qemu_log)"
+		[ $attempts -gt 120 ] && die "vm did not become ready in 60s"
+		kill -0 "$QEMU_PID" 2>/dev/null || die "qemu exited unexpectedly"
 		sleep 0.5
 	done
+	VM_READY=true
 
 	ssh -p "$ssh_port" -t \
 		-i "$ssh_key" \
