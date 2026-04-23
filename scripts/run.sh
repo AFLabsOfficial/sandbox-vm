@@ -215,8 +215,13 @@ main() {
 		-device "virtio-blk-pci,drive=hd0"
 		-device virtio-rng-pci
 		-nic "$nic_arg"
-		-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny"
 	)
+
+	# -sandbox needs libseccomp; qemu's seccomp backend is linux-only, so
+	# skip it on macos (hvf) or anywhere qemu was built without the feature
+	if [ "$os" = "Linux" ]; then
+		qemu_args+=(-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny")
+	fi
 
 	# display mode
 	if [ "$gui" = "true" ]; then
