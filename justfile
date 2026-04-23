@@ -31,5 +31,6 @@ list-images variant="headless":
     bash scripts/pull.sh --list {{variant}}
 
 # ssh into running sandbox (port is positional; pass extra ssh flags after: `just ssh 22022 -L ...`)
+# port default mirrors SANDBOX_DEFAULT_PORT in scripts/lib.sh
 ssh port="22022" *ARGS:
     ssh -p {{port}} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null -o LogLevel=ERROR {{ARGS}} sandbox@localhost

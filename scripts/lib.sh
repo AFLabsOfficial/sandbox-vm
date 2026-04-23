@@ -1,6 +1,15 @@
 #!/usr/bin/env bash
 # shared helpers for sandbox-vm scripts
 
+# runtime defaults — the justfile mirrors these, keep them in sync
+# shellcheck disable=SC2034 # used by sourcing scripts
+SANDBOX_DEFAULT_PORT=22022
+# shellcheck disable=SC2034
+SANDBOX_DEFAULT_MEMORY=4G
+# shellcheck disable=SC2034
+SANDBOX_DEFAULT_CPUS=2
+
+# shellcheck disable=SC2034 # used by sourcing scripts
 setup_colors() {
 	if [ -t 2 ]; then
 		red=$'\033[31m'
@@ -12,12 +21,18 @@ setup_colors() {
 	else
 		red="" green="" yellow="" cyan="" bold="" reset=""
 	fi
-	export red green yellow cyan bold reset
 }
 
 die() {
 	echo "${red}error:${reset} $*" >&2
 	exit 1
+}
+
+# emit an error message and delegate to the sourcing script's usage() for
+# the help text + nonzero exit
+die_usage() {
+	echo "${red}error:${reset} $*" >&2
+	usage 1
 }
 
 warn() {

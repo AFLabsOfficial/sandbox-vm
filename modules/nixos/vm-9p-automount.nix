@@ -12,7 +12,7 @@ let
   mountShareScript = pkgs.writeShellScript "mount-9p-share" ''
     # usage: mount-9p-share <tag> <target>
     # mount 9p directly at target; if the host uid doesn't match the guest
-    # user, remount via a bindfs staging dir to remap ownership.
+    # user, remount via a bindfs staging dir to remap ownership
     # NOTE:(@janezicmatej) we avoid `mount --move` because sources under a
     # shared parent (systemd default for /) can't be moved
     set -u

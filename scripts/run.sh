@@ -21,7 +21,7 @@ cleanup() {
 trap cleanup EXIT
 
 # returns 0 once the guest's sshd has started speaking (first bytes are "SSH-"),
-# non-zero while the port is either unreachable or still silent.
+# non-zero while the port is either unreachable or still silent
 awaiting_ssh_banner() {
 	local port="$1"
 	local banner
@@ -54,7 +54,8 @@ EOF
 main() {
 	[ "$EUID" -eq 0 ] && die "run.sh must not run as root"
 
-	local ssh_port="" memory=4G cpus=2 claude=true no_pull=false
+	local ssh_port="" memory="$SANDBOX_DEFAULT_MEMORY" cpus="$SANDBOX_DEFAULT_CPUS"
+	local claude=true no_pull=false
 	local image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=()
 
@@ -101,17 +102,13 @@ main() {
 			shift 2
 			;;
 		-h | --help) usage ;;
-		-*)
-			echo "${red}error:${reset} unknown option: $1" >&2
-			usage 1
-			;;
+		-*) die_usage "unknown option: $1" ;;
 		*)
 			if [ -z "$image" ]; then
 				image="$1"
 				shift
 			else
-				echo "${red}error:${reset} unexpected argument: $1" >&2
-				usage 1
+				die_usage "unexpected argument: $1"
 			fi
 			;;
 		esac
@@ -153,6 +150,8 @@ main() {
 
 	case "$os" in
 	Linux)
+		# -r (readable) not -e (exists): we use kvm in-process so access is the
+		# actual prerequisite; build.sh uses -e because docker mounts the device
 		if [ -r /dev/kvm ]; then
 			accel="kvm"
 			hw_accel=true
@@ -185,7 +184,7 @@ main() {
 
 	# auto-allocate ssh port for headless
 	if [ "$gui" != "true" ] && [ -z "$ssh_port" ]; then
-		ssh_port=22022
+		ssh_port=$SANDBOX_DEFAULT_PORT
 		while port_in_use "$ssh_port"; do
 			ssh_port=$((ssh_port + 1))
 		done
@@ -318,7 +317,7 @@ main() {
 	# poll for the real SSH banner, not just TCP accept: qemu's user-mode
 	# networking accepts host-side the moment qemu starts, well before the
 	# guest sshd is listening. reading the first bytes waits until the
-	# guest really is speaking ssh.
+	# guest really is speaking ssh
 	while ! awaiting_ssh_banner "$ssh_port"; do
 		attempts=$((attempts + 1))
 		[ $attempts -gt 120 ] && die "vm did not become ready in 60s (see $qemu_log)"

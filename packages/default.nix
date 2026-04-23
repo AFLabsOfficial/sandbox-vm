@@ -1,1 +1,3 @@
-{ my-lib, ... }: args: my-lib.mapDir ./. args
+{ pkgs }: {
+  claude-code = import ./claude-code/package.nix { inherit pkgs; };
+}
