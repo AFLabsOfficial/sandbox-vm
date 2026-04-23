@@ -49,10 +49,7 @@ main() {
 			shift
 			;;
 		-h | --help) usage ;;
-		*)
-			echo "${red}error:${reset} unknown option: $1" >&2
-			usage 1
-			;;
+		*) die_usage "unknown option: $1" ;;
 		esac
 	done
 

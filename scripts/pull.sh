@@ -320,17 +320,13 @@ main() {
 			shift
 			;;
 		-h | --help) usage ;;
-		-*)
-			echo "${red}error:${reset} unknown option: $1" >&2
-			usage 1
-			;;
+		-*) die_usage "unknown option: $1" ;;
 		*)
 			if [ -z "$variant" ]; then
 				variant="$1"
 				shift
 			else
-				echo "${red}error:${reset} unexpected argument: $1" >&2
-				usage 1
+				die_usage "unexpected argument: $1"
 			fi
 			;;
 		esac

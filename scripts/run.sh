@@ -54,7 +54,8 @@ EOF
 main() {
 	[ "$EUID" -eq 0 ] && die "run.sh must not run as root"
 
-	local ssh_port="" memory=4G cpus=2 claude=true no_pull=false
+	local ssh_port="" memory="$SANDBOX_DEFAULT_MEMORY" cpus="$SANDBOX_DEFAULT_CPUS"
+	local claude=true no_pull=false
 	local image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=()
 
@@ -101,17 +102,13 @@ main() {
 			shift 2
 			;;
 		-h | --help) usage ;;
-		-*)
-			echo "${red}error:${reset} unknown option: $1" >&2
-			usage 1
-			;;
+		-*) die_usage "unknown option: $1" ;;
 		*)
 			if [ -z "$image" ]; then
 				image="$1"
 				shift
 			else
-				echo "${red}error:${reset} unexpected argument: $1" >&2
-				usage 1
+				die_usage "unexpected argument: $1"
 			fi
 			;;
 		esac
@@ -187,7 +184,7 @@ main() {
 
 	# auto-allocate ssh port for headless
 	if [ "$gui" != "true" ] && [ -z "$ssh_port" ]; then
-		ssh_port=22022
+		ssh_port=$SANDBOX_DEFAULT_PORT
 		while port_in_use "$ssh_port"; do
 			ssh_port=$((ssh_port + 1))
 		done
