@@ -29,12 +29,16 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# resolved at preflight: `timeout` (gnu coreutils, linux) or `gtimeout`
+# (brew install coreutils on macos)
+TIMEOUT_BIN=""
+
 # returns 0 once the guest's sshd has started speaking (first bytes are "SSH-"),
 # non-zero while the port is either unreachable or still silent
 awaiting_ssh_banner() {
 	local port="$1"
 	local banner
-	banner=$(timeout 2 bash -c "exec 3<>/dev/tcp/localhost/$port; head -c 4 <&3" 2>/dev/null) || return 1
+	banner=$("$TIMEOUT_BIN" 2 bash -c "exec 3<>/dev/tcp/localhost/$port; head -c 4 <&3" 2>/dev/null) || return 1
 	[ "$banner" = "SSH-" ]
 }
 
@@ -62,6 +66,10 @@ EOF
 
 main() {
 	[ "$EUID" -eq 0 ] && die "run.sh must not run as root"
+
+	# gnu coreutils: `timeout` on linux, `gtimeout` on macos via brew
+	TIMEOUT_BIN=$(command -v timeout || command -v gtimeout) ||
+		die "timeout(1) not found; on macos: brew install coreutils"
 
 	local ssh_port="" memory="$SANDBOX_DEFAULT_MEMORY" cpus="$SANDBOX_DEFAULT_CPUS"
 	local claude=true no_pull=false

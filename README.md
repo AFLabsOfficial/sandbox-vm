@@ -20,8 +20,9 @@ Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
 **macOS**
 ```sh
-brew install just qemu curl gnupg
+brew install just qemu curl gnupg coreutils
 ```
+`coreutils` provides `gtimeout`, which `run.sh` needs to bound its SSH-readiness probe.
 
 **Debian / Ubuntu**
 ```sh
