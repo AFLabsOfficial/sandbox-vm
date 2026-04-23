@@ -14,6 +14,7 @@ usage() {
 
 sign_image() {
 	local image="$1"
+	[ "${image%.qcow2}" != "$image" ] || die "expected a .qcow2 file, got: $image"
 	[ -f "$image" ] || die "file not found: $image"
 
 	local name base dir hash
@@ -29,14 +30,23 @@ sign_image() {
 }
 
 main() {
-	case "${1:-}" in
-	-h | --help) usage ;;
-	"") usage 1 ;;
-	esac
+	local -a images=()
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		-h | --help) usage ;;
+		-*) die_usage "unknown option: $1" ;;
+		*)
+			images+=("$1")
+			shift
+			;;
+		esac
+	done
+
+	[ "${#images[@]}" -gt 0 ] || usage 1
 
 	require_cmd gpg
 
-	for image in "$@"; do
+	for image in "${images[@]}"; do
 		sign_image "$image"
 	done
 }
