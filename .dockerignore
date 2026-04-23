@@ -4,4 +4,5 @@
 !nix.nix
 !hosts/
 !modules/
+!packages/
 !users/

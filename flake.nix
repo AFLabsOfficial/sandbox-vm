@@ -34,14 +34,12 @@
       ];
       forAllSystems = lib.genAttrs systems;
 
-      my-lib = import ./lib { inherit lib; };
-
       pkgsFor = system: import nixpkgs {
         inherit system;
         config.allowUnfree = true;
       };
 
-      packagesFor = system: import ./packages { inherit my-lib lib; } { pkgs = pkgsFor system; };
+      packagesFor = system: import ./packages { pkgs = pkgsFor system; };
 
       mkSandbox =
         system:
