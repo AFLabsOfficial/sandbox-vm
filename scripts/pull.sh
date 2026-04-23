@@ -218,10 +218,16 @@ warn_if_newer_available() {
 # echo latest cached filename matching pin_re
 resolve_from_cache() {
 	local cache_dir="$1" pin_re="$2"
-	find "$cache_dir" -maxdepth 1 -name '*.qcow2' 2>/dev/null |
-		while read -r p; do basename "$p"; done |
-		{ grep -E "$pin_re" || true; } | sort -V | tail -1
-	return 0
+	local -a names=()
+	local f name
+	shopt -s nullglob
+	for f in "$cache_dir"/*.qcow2; do
+		name="${f##*/}"
+		[[ "$name" =~ $pin_re ]] && names+=("$name")
+	done
+	shopt -u nullglob
+	[ "${#names[@]}" -gt 0 ] || return 0
+	printf '%s\n' "${names[@]}" | sort -V | tail -1
 }
 
 # drop all but the latest N cached images per (variant, arch) group,
@@ -335,6 +341,7 @@ main() {
 	# --prune doesn't need a variant; it operates on the whole cache
 	if [ "$prune" = true ]; then
 		mkdir -p "$cache_dir"
+		chmod 700 "$cache_dir"
 		prune_cache "$cache_dir" "$prune_keep"
 		return 0
 	fi
@@ -350,6 +357,11 @@ main() {
 		[[ "$version" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-+][0-9A-Za-z.-]+)?$ ]] ||
 			die "--version must be a strict semver like v0.5.1, got: $version"
 	fi
+
+	# --list is an enumeration; combining with --version would narrow to a
+	# single already-known filename and is almost certainly a typo
+	[ "$list" = true ] && [ -n "$version" ] &&
+		die_usage "--list and --version are mutually exclusive"
 
 	arch=$(normalize_arch "$arch")
 	require_cmd curl
@@ -378,6 +390,7 @@ main() {
 	fi
 
 	mkdir -p "$cache_dir"
+	chmod 700 "$cache_dir"
 
 	# --no-pull: skip network entirely, verify from cache
 	if [ "$no_pull" = true ]; then
