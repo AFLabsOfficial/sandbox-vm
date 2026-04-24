@@ -20,9 +20,11 @@ Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
 **macOS**
 ```sh
-brew install just qemu curl gnupg coreutils
+brew install just qemu curl gnupg coreutils bash
 ```
-`coreutils` provides `gtimeout`, which `run.sh` needs to bound its SSH-readiness probe.
+`coreutils` provides `gtimeout`, which `run.sh` needs to bound its SSH-readiness
+probe. `bash` is required because the scripts use features unavailable in the
+bash 3 that ships with macOS.
 
 **Debian / Ubuntu**
 ```sh
@@ -32,6 +34,17 @@ sudo apt install just qemu-system-x86 qemu-kvm curl gnupg -y
 # aarch64 hosts
 sudo apt install just qemu-system-arm qemu-efi-aarch64 curl gnupg -y
 ```
+
+**WSL**
+
+After installing the packages above, add your user to the `kvm` group so the
+VM can use hardware acceleration:
+
+```sh
+sudo usermod -aG kvm $USER
+```
+
+Log out and back in for the group change to take effect.
 
 `gnupg` is optional but strongly recommended; without it, `pull` falls back to
 sha256-only, which does not authenticate against a network attacker.
@@ -43,28 +56,39 @@ too but runs under emulation (much slower).
 
 ## Quick start
 
-Pulls the latest image and launches it:
+Add an alias so you can launch a VM from any project directory:
+
+```sh
+alias sandbox-vm="/path/to/sandbox-vm.nix/scripts/run.sh"
+```
+
+Then:
 
 ```sh
 # headless (auto-connects via ssh)
-just run-headless --mount /path/to/project
+sandbox-vm --headless --mount .
 
 # gui
-just run-gui --mount /path/to/project
+sandbox-vm --gui --mount .
 ```
 
-### Alias
+The latest image is pulled automatically on first launch.
 
-Add an alias to run from anywhere:
+If you always use the same variant, bake it into the alias:
 
 ```sh
 alias sandbox-vm="/path/to/sandbox-vm.nix/scripts/run.sh --headless"
+# then: sandbox-vm --mount .
 ```
 
-Then from any project directory:
+### Alternative: `just` commands
+
+The repo ships `just` recipes for running from a cloned checkout. These are
+kept for convenience but the alias above is preferred:
 
 ```sh
-sandbox-vm --mount .
+just run-headless --mount /path/to/project
+just run-gui --mount /path/to/project
 ```
 
 ## SSH
