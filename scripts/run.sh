@@ -297,7 +297,6 @@ main() {
 			mkdir -p "$fallback"
 			claude_dir="$fallback"
 			warn "CLAUDE_CONFIG_DIR not set or missing, using $fallback"
-			info "  run 'claude login' inside the VM to authenticate"
 		fi
 		claude_dir=$(realpath "$claude_dir")
 		case "$claude_dir" in
