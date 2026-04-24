@@ -56,13 +56,15 @@ too but runs under emulation (much slower).
 
 ## Quick start
 
-Add an alias so you can launch a VM from any project directory:
+Add an alias to your shell rc (`~/.zshrc`, `~/.bashrc`, etc.) so you can
+launch a VM from any project directory. Replace `/path/to/` with the actual
+path to your clone of this repo:
 
 ```sh
 alias sandbox-vm="/path/to/sandbox-vm.nix/scripts/run.sh"
 ```
 
-Then:
+Reload your shell (or `source` the rc file), then:
 
 ```sh
 # headless (auto-connects via ssh)
