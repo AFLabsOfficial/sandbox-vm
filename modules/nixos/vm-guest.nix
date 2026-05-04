@@ -47,6 +47,10 @@
 
     security.sudo.wheelNeedsPassword = false;
 
+    # terminfo for ghostty, kitty, alacritty, wezterm, foot, etc. so ssh clients
+    # forwarding their native TERM don't break ncurses apps
+    environment.enableAllTerminfo = true;
+
     environment.systemPackages = with pkgs; [
       curl
       wget
