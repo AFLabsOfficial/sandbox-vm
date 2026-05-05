@@ -13,14 +13,18 @@ BASE_URL="https://dl.aflabs.org/iso"
 CURL_OPTS=(--proto '=https' --proto-redir '=https')
 
 # globals for cleanup trap
-# note: image partial is not tracked here — it persists across runs so a
-# re-run can resume via curl -C -. it's only removed when verify fails,
-# via UNVERIFIED_PARTIAL below
+# note: in the locked path the shared partial is not tracked here — it
+# persists across runs so a re-run can resume via curl -C -. it's only
+# removed when verify fails, via UNVERIFIED_PARTIAL below. in the no-flock
+# fallback the partial is per-pid and unconditionally cleaned up via
+# FALLBACK_PARTIAL
 TMP_HASH=""
 TMP_SIG=""
 UNVERIFIED_PARTIAL=""
+FALLBACK_PARTIAL=""
 cleanup() {
 	[ -n "$UNVERIFIED_PARTIAL" ] && rm -f "$UNVERIFIED_PARTIAL"
+	[ -n "$FALLBACK_PARTIAL" ] && rm -f "$FALLBACK_PARTIAL"
 	[ -n "$TMP_HASH" ] && rm -f "$TMP_HASH"
 	[ -n "$TMP_SIG" ] && rm -f "$TMP_SIG"
 	return 0
@@ -97,6 +101,21 @@ verify_hash() {
 	[ "$expected_hash" = "$actual" ] ||
 		die "sha256 mismatch! expected: $expected_hash, actual: $actual"
 	info "sha256 ok: $actual"
+}
+
+# acquire an exclusive lock on $1, blocking until it's free. lock is held
+# via fd 9 — the kernel releases it when this script exits (or is killed),
+# so no stale-lock cleanup is needed. returns 1 if flock(1) is missing,
+# letting callers fall back to a per-pid scheme
+acquire_image_lock() {
+	local lockfile="$1"
+	command -v flock &>/dev/null || return 1
+	exec 9>"$lockfile"
+	if ! flock -n 9; then
+		info "another process is downloading the same image; waiting..."
+		flock 9 || die "failed to acquire lock: $lockfile"
+	fi
+	return 0
 }
 
 # portable size+mtime query — echoes "<size> <mtime>" to stdout
@@ -254,7 +273,9 @@ prune_cache() {
 				"$cache_dir/${base}.sha256" \
 				"$cache_dir/${base}.sha256.asc" \
 				"$cache_dir/${f}.verified" \
-				"$cache_dir/${f}.partial"
+				"$cache_dir/${f}.partial" \
+				"$cache_dir/${f}.lock" \
+				"$cache_dir/${f}".*.partial
 			removed=$((removed + 1))
 		done <<<"$to_drop"
 	done
@@ -468,8 +489,28 @@ main() {
 		return 0
 	fi
 
+	# serialize concurrent pulls of the same image. without this, multiple
+	# curls write to the shared $dest.partial with -C -, corrupting it and
+	# producing a sha256 mismatch. on systems without flock(1) we fall back
+	# to a per-pid partial — wastes bandwidth but avoids the race
+	local partial
+	if acquire_image_lock "$dest.lock"; then
+		# another process may have completed the download while we waited
+		if [ -f "$dest" ] && [ "$force" != true ]; then
+			info "cached: $filename"
+			verify_cached "$dest"
+			write_recent_resolution "$cache_dir" "$variant" "$arch" "$filename"
+			echo "$dest"
+			return 0
+		fi
+		partial="$dest.partial"
+	else
+		warn "flock(1) not available; using per-pid partial (no cross-run resume)"
+		partial="$dest.$$.partial"
+		FALLBACK_PARTIAL="$partial"
+	fi
+
 	info "downloading: $filename"
-	local partial="$dest.partial"
 	TMP_HASH="$cache_dir/.pull-$$-$hashname"
 	TMP_SIG="$cache_dir/.pull-$$-$signame"
 
@@ -495,6 +536,7 @@ main() {
 	# its final path, so the cleanup trap unwinds any partially-promoted
 	# triplet if we die between moves
 	mv "$partial" "$dest"
+	FALLBACK_PARTIAL=""
 	UNVERIFIED_PARTIAL="$dest"
 	mv "$TMP_HASH" "$hash_dest"
 	TMP_HASH="$hash_dest"
