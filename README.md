@@ -12,7 +12,7 @@ Everything resets on shutdown.
 | **Best for** | Terminal-comfortable developers | Visual workflows, less CLI experience |
 | **Login** | Automatic (any SSH key accepted) | Auto-login, no passwords |
 
-**What's included:** Claude Code, git, docker, tmux, ripgrep, and more.
+**What's included:** Claude Code, OpenAI Codex, git, docker, tmux, ripgrep, and more.
 Mount your projects from the host, authenticate once, and you're ready to go.
 Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
@@ -110,6 +110,7 @@ just ssh 22022 -L 8080:localhost:8080   # port forward
 ```
   --mount <path>         Mount host directory into VM (repeatable)
   --no-claude            Skip mounting claude config dir
+  --no-codex             Skip mounting codex config dir
   --no-pull              Use latest cached image instead of downloading
   --arch <arch>          Guest architecture (default: host arch)
   --disk-size <size>     Resize guest disk (e.g. 50G)
@@ -150,6 +151,12 @@ cp -r .claude/skills/sandbox-vm/* "${CLAUDE_CONFIG_DIR:-$HOME/.config/sandbox-vm
 ```
 
 Then run `/sandbox-vm` inside the VM to give Claude context about the environment.
+
+### Codex
+
+Codex config is mounted the same way. Uses `CODEX_HOME` if set, otherwise
+falls back to `~/.config/sandbox-vm/codex`. Codex is pre-installed and will
+pick up your auth automatically. Pass `--no-codex` to skip mounting.
 
 ## Installing additional tools
 

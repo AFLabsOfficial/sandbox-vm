@@ -55,6 +55,7 @@ Options:
   --no-pull              Use latest cached image instead of downloading
   --mount <path>         Mount host directory into VM (repeatable)
   --no-claude            Skip mounting claude config dir
+  --no-codex             Skip mounting codex config dir
   --disk-size <size>     Resize guest disk (e.g. 50G, default: image built-in size)
   --memory <size>        VM memory (default: 4G)
   --cpus <n>             VM CPUs (default: 2)
@@ -72,7 +73,7 @@ main() {
 		die "timeout(1) not found; on macos: brew install coreutils"
 
 	local ssh_port="" memory="$SANDBOX_DEFAULT_MEMORY" cpus="$SANDBOX_DEFAULT_CPUS"
-	local claude=true no_pull=false
+	local claude=true codex=true no_pull=false
 	local image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=()
 
@@ -100,6 +101,10 @@ main() {
 			;;
 		--no-claude)
 			claude=false
+			shift
+			;;
+		--no-codex)
+			codex=false
 			shift
 			;;
 		--disk-size)
@@ -305,6 +310,25 @@ main() {
 
 		qemu_args+=(
 			-virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${fs_id}"
+		)
+		fs_id=$((fs_id + 1))
+	fi
+
+	if [ "$codex" = true ]; then
+		local codex_dir="${CODEX_HOME:-}"
+		if [ -z "$codex_dir" ] || [ ! -d "$codex_dir" ]; then
+			local fallback="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/codex"
+			mkdir -p "$fallback"
+			codex_dir="$fallback"
+			warn "CODEX_HOME not set or missing, using $fallback"
+		fi
+		codex_dir=$(realpath "$codex_dir")
+		case "$codex_dir" in
+		*,*) die "codex config dir may not contain commas: $codex_dir" ;;
+		esac
+
+		qemu_args+=(
+			-virtfs "local,path=$codex_dir,mount_tag=codex,security_model=none,id=fs${fs_id}"
 		)
 		fs_id=$((fs_id + 1))
 	fi

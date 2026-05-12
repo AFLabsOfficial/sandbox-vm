@@ -30,7 +30,10 @@
   programs.zsh = {
     enable = true;
     dotDir = "${config.xdg.configHome}/zsh";
-    shellAliases.dsp = "claude --dangerously-skip-permissions";
+    shellAliases = {
+      dsp = "claude --dangerously-skip-permissions";
+      dbas = "codex --dangerously-bypass-approvals-and-sandbox";
+    };
   };
 
   programs.starship = {
