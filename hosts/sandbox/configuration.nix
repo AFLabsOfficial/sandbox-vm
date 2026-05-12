@@ -108,6 +108,7 @@
 
   environment.systemPackages = [
     inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
+    inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.codex
   ]
   ++ (with pkgs; [
     # tools
