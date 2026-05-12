@@ -7,6 +7,18 @@
   version,
   ...
 }:
+let
+  # NOTE:(@janezicmatej) codex stores runtime state in a sqlite db; sqlite's
+  # locking/mmap semantics don't work on 9p, so when $CODEX_HOME is the 9p
+  # mount the migrations fail with disk I/O error. inject -c sqlite_home to
+  # point the db at a guest-local ext4 path; the rest of $CODEX_HOME (auth,
+  # config, jsonl sessions) is fine over 9p
+  codexPkg = inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.codex;
+  codexSqliteHome = "/var/lib/codex";
+  codexWrapped = pkgs.writeShellScriptBin "codex" ''
+    exec ${codexPkg}/bin/codex -c 'sqlite_home="${codexSqliteHome}"' "$@"
+  '';
+in
 {
   imports = [
     ./hardware-configuration.nix
@@ -44,6 +56,7 @@
   # ensure .config exists with correct ownership before automount
   systemd.tmpfiles.rules = [
     "d ${config.users.users.sandbox.home}/.config 0700 sandbox users -"
+    "d ${codexSqliteHome} 0700 sandbox users -"
   ];
 
   # writable claude config via 9p, direct when host uids match, bindfs fallback otherwise
@@ -77,6 +90,37 @@
 
   environment.sessionVariables.CLAUDE_CONFIG_DIR = "${config.users.users.sandbox.home}/.config/claude";
 
+  # writable codex config via 9p, direct when host uids match, bindfs fallback otherwise
+  systemd.services.codex-9p-mount = {
+    description = "Mount codex config via 9p";
+    after = [
+      "local-fs.target"
+      "systemd-modules-load.service"
+    ];
+    wants = [ "systemd-modules-load.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "codex-9p-mount" ''
+        have_tag=0
+        for tagfile in $(find /sys/devices -name mount_tag 2>/dev/null); do
+          [ -f "$tagfile" ] || continue
+          t=$(tr -d '\0' < "$tagfile")
+          if [ "$t" = "codex" ]; then
+            have_tag=1
+            break
+          fi
+        done
+        [ "$have_tag" = "1" ] || exit 0
+
+        exec ${config.vm-9p-automount.mountShareScript} codex ${config.users.users.sandbox.home}/.codex
+      '';
+    };
+  };
+
+  environment.sessionVariables.CODEX_HOME = "${config.users.users.sandbox.home}/.codex";
+
   # accept any ssh key (ephemeral localhost-only vm)
   # script lives under /etc/ssh so sshd's parent-directory ownership check passes
   # (/nix/store is group-writable for nixbld, which sshd rejects)
@@ -108,7 +152,7 @@
 
   environment.systemPackages = [
     inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
-    inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.codex
+    codexWrapped
   ]
   ++ (with pkgs; [
     # tools
