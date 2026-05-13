@@ -66,29 +66,47 @@ require_cmd() {
 	command -v "$1" &>/dev/null || die "$1 not found${2:+ ($2)}"
 }
 
+# stable hash of all file contents and relative paths in a directory tree;
+# returns "none" if the dir does not exist. used by install_skill so a change
+# anywhere in the skill tree (SKILL.md, references/, scripts/) triggers an
+# update, not just SKILL.md
+dir_content_hash() {
+	local dir="$1"
+	[ -d "$dir" ] || {
+		echo "none"
+		return
+	}
+	if command -v sha256sum &>/dev/null; then
+		(cd "$dir" && find . -type f -print0 | sort -z | xargs -0 sha256sum) | sha256sum | awk '{print $1}'
+	elif command -v shasum &>/dev/null; then
+		(cd "$dir" && find . -type f -print0 | sort -z | xargs -0 shasum -a 256) | shasum -a 256 | awk '{print $1}'
+	else
+		die "sha256sum or shasum required"
+	fi
+}
+
 # install or update a skill into <target_root>/skills/<name>/, copying from
-# <source_dir>. content is compared via SKILL.md sha256; identical installs
-# are a no-op. the target dir is created if missing
+# <source_dir>. content is compared via a hash of the full source tree;
+# identical installs are a no-op. on update the target dir is replaced
+# (not merged) so removed files stay removed
 install_skill() {
 	local source_dir="$1" target_root="$2"
-	local skill_name source_skill target_dir target_skill action
+	local skill_name target_dir source_hash target_hash action
 
 	skill_name=$(basename "$source_dir")
-	source_skill="$source_dir/SKILL.md"
 	target_dir="$target_root/skills/$skill_name"
-	target_skill="$target_dir/SKILL.md"
 
-	[ -f "$source_skill" ] || return 0
+	[ -f "$source_dir/SKILL.md" ] || return 0
 
-	if [ -f "$target_skill" ] &&
-		[ "$(sha256_file "$source_skill")" = "$(sha256_file "$target_skill")" ]; then
-		return 0
-	fi
+	source_hash=$(dir_content_hash "$source_dir")
+	target_hash=$(dir_content_hash "$target_dir")
+	[ "$source_hash" = "$target_hash" ] && return 0
 
 	action="installing"
-	[ -f "$target_skill" ] && action="updating"
+	[ -d "$target_dir" ] && action="updating"
 	info "$action $skill_name skill at $target_dir"
 
+	rm -rf "$target_dir"
 	mkdir -p "$target_dir"
 	cp -R "$source_dir/." "$target_dir/"
 }
