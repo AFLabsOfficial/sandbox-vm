@@ -295,6 +295,8 @@ main() {
 		fs_id=$((fs_id + 1))
 	done
 
+	local skill_source="$SCRIPT_DIR/../skills/sandbox-vm"
+
 	if [ "$claude" = true ]; then
 		local claude_dir="${CLAUDE_CONFIG_DIR:-}"
 		if [ -z "$claude_dir" ]; then
@@ -306,6 +308,8 @@ main() {
 		case "$claude_dir" in
 		*,*) die "claude config dir may not contain commas: $claude_dir" ;;
 		esac
+
+		install_skill "$skill_source" "$claude_dir"
 
 		qemu_args+=(
 			-virtfs "local,path=$claude_dir,mount_tag=claude,security_model=none,id=fs${fs_id}"
@@ -324,6 +328,8 @@ main() {
 		case "$codex_dir" in
 		*,*) die "codex config dir may not contain commas: $codex_dir" ;;
 		esac
+
+		install_skill "$skill_source" "$codex_dir"
 
 		qemu_args+=(
 			-virtfs "local,path=$codex_dir,mount_tag=codex,security_model=none,id=fs${fs_id}"

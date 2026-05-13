@@ -18,6 +18,8 @@ let
   codexWrapped = pkgs.writeShellScriptBin "codex" ''
     exec ${codexPkg}/bin/codex -c 'sqlite_home="${codexSqliteHome}"' "$@"
   '';
+
+  sandboxVmState = "${config.users.users.sandbox.home}/.local/state/sandbox-vm";
 in
 {
   imports = [
@@ -57,6 +59,9 @@ in
   systemd.tmpfiles.rules = [
     "d ${config.users.users.sandbox.home}/.config 0700 sandbox users -"
     "d ${codexSqliteHome} 0700 sandbox users -"
+    "d ${config.users.users.sandbox.home}/.local 0755 sandbox users -"
+    "d ${config.users.users.sandbox.home}/.local/state 0755 sandbox users -"
+    "d ${sandboxVmState} 0755 sandbox users -"
   ];
 
   # writable claude config via 9p, direct when host uids match, bindfs fallback otherwise
@@ -120,6 +125,18 @@ in
   };
 
   environment.sessionVariables.CODEX_HOME = "${config.users.users.sandbox.home}/.codex";
+
+  # marker the sandbox-vm skill keys off — the skill's description tells the
+  # in-vm assistant to auto-load when SANDBOX_VM=1 or /etc/sandbox-vm-release
+  # is present, so on the host neither signal is set and the skill stays inert
+  environment.etc."sandbox-vm-release".text = ''
+    SANDBOX_VM_VERSION="${version}"
+    SANDBOX_VM_VARIANT="${if gui then "gui" else "headless"}"
+    SANDBOX_VM_ARCH="${pkgs.stdenv.hostPlatform.parsed.cpu.name}"
+  '';
+
+  environment.sessionVariables.SANDBOX_VM = "1";
+  environment.sessionVariables.SANDBOX_VM_STATE = sandboxVmState;
 
   # accept any ssh key (ephemeral localhost-only vm)
   # script lives under /etc/ssh so sshd's parent-directory ownership check passes
