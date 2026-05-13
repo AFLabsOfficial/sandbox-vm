@@ -142,21 +142,23 @@ Claude config is mounted by default into the VM (writable). Uses
 Claude Code is pre-installed and will pick up your auth automatically.
 Pass `--no-claude` to skip mounting.
 
-This repo includes a `/sandbox-vm` skill for Claude Code. To make it available
-globally, copy it to your personal skills directory:
-
-```sh
-mkdir -p "${CLAUDE_CONFIG_DIR:-$HOME/.config/sandbox-vm/claude}"/skills/sandbox-vm
-cp -r .claude/skills/sandbox-vm/* "${CLAUDE_CONFIG_DIR:-$HOME/.config/sandbox-vm/claude}"/skills/sandbox-vm/
-```
-
-Then run `/sandbox-vm` inside the VM to give Claude context about the environment.
-
 ### Codex
 
 Codex config is mounted the same way. Uses `CODEX_HOME` if set, otherwise
 falls back to `~/.config/sandbox-vm/codex`. Codex is pre-installed and will
 pick up your auth automatically. Pass `--no-codex` to skip mounting.
+
+### `/sandbox-vm` skill
+
+This repo ships a `sandbox-vm` skill that gives the in-VM assistant context
+about the disposable NixOS environment (package install, mounted paths, what
+survives shutdown). The skill source lives in [`skills/sandbox-vm/`](skills/sandbox-vm/).
+
+`run.sh` installs it into both `$CLAUDE_CONFIG_DIR/skills/sandbox-vm/` and
+`$CODEX_HOME/skills/sandbox-vm/` on every launch, syncing to the repo version
+if its contents differ. There is no manual install step — invoke it inside
+the VM with `/sandbox-vm` once the VM is up. Skipping the config mount
+(`--no-claude` / `--no-codex`) skips the install for that tool too.
 
 ## Installing additional tools
 

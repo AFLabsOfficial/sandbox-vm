@@ -66,6 +66,33 @@ require_cmd() {
 	command -v "$1" &>/dev/null || die "$1 not found${2:+ ($2)}"
 }
 
+# install or update a skill into <target_root>/skills/<name>/, copying from
+# <source_dir>. content is compared via SKILL.md sha256; identical installs
+# are a no-op. the target dir is created if missing
+install_skill() {
+	local source_dir="$1" target_root="$2"
+	local skill_name source_skill target_dir target_skill action
+
+	skill_name=$(basename "$source_dir")
+	source_skill="$source_dir/SKILL.md"
+	target_dir="$target_root/skills/$skill_name"
+	target_skill="$target_dir/SKILL.md"
+
+	[ -f "$source_skill" ] || return 0
+
+	if [ -f "$target_skill" ] &&
+		[ "$(sha256_file "$source_skill")" = "$(sha256_file "$target_skill")" ]; then
+		return 0
+	fi
+
+	action="installing"
+	[ -f "$target_skill" ] && action="updating"
+	info "$action $skill_name skill at $target_dir"
+
+	mkdir -p "$target_dir"
+	cp -R "$source_dir/." "$target_dir/"
+}
+
 # cross-platform check whether a TCP port is in use
 port_in_use() {
 	local port="$1"
