@@ -297,12 +297,11 @@ main() {
 
 	if [ "$claude" = true ]; then
 		local claude_dir="${CLAUDE_CONFIG_DIR:-}"
-		if [ -z "$claude_dir" ] || [ ! -d "$claude_dir" ]; then
-			local fallback="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/claude"
-			mkdir -p "$fallback"
-			claude_dir="$fallback"
-			warn "CLAUDE_CONFIG_DIR not set or missing, using $fallback"
+		if [ -z "$claude_dir" ]; then
+			claude_dir="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/claude"
+			warn "CLAUDE_CONFIG_DIR not set, using $claude_dir"
 		fi
+		mkdir -p "$claude_dir"
 		claude_dir=$(realpath "$claude_dir")
 		case "$claude_dir" in
 		*,*) die "claude config dir may not contain commas: $claude_dir" ;;
@@ -316,12 +315,11 @@ main() {
 
 	if [ "$codex" = true ]; then
 		local codex_dir="${CODEX_HOME:-}"
-		if [ -z "$codex_dir" ] || [ ! -d "$codex_dir" ]; then
-			local fallback="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/codex"
-			mkdir -p "$fallback"
-			codex_dir="$fallback"
-			warn "CODEX_HOME not set or missing, using $fallback"
+		if [ -z "$codex_dir" ]; then
+			codex_dir="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/codex"
+			warn "CODEX_HOME not set, using $codex_dir"
 		fi
+		mkdir -p "$codex_dir"
 		codex_dir=$(realpath "$codex_dir")
 		case "$codex_dir" in
 		*,*) die "codex config dir may not contain commas: $codex_dir" ;;
