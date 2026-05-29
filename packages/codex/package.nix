@@ -2,33 +2,33 @@
 
 let
   inherit (pkgs) stdenv lib;
-  version = "0.130.0";
+  version = "0.135.0";
 
   # upstream ships platform-native binaries via versioned tags on the same
   # @openai/codex npm package (the @openai/codex-<slug> aliases all resolve
   # to the same tarball at version <version>-<slug>); the tarball contains
-  # the codex binary under vendor/<triple>/codex/codex plus bundled rg and
-  # bwrap under vendor/<triple>/path and codex-resources
+  # the codex binary under vendor/<triple>/bin/codex plus bundled rg under
+  # vendor/<triple>/codex-path and bwrap under vendor/<triple>/codex-resources
   sources = {
     "x86_64-linux" = {
       slug = "linux-x64";
       triple = "x86_64-unknown-linux-musl";
-      hash = "sha256-uWWaVDjImmXmMTPDnxSghFOVZ9jpxR7oC1c0I1GjatI=";
+      hash = "sha256-zvzeQWnqRFgkL0siZHq3LEs4EWaLW0H6zqL+C3tl8vo=";
     };
     "aarch64-linux" = {
       slug = "linux-arm64";
       triple = "aarch64-unknown-linux-musl";
-      hash = "sha256-7U/Nl5k2pnO0RHWFBGgJo1pQNnBT3/zhxiXxsF6I24s=";
+      hash = "sha256-05xrA08GxJZ2r7cvRnR0p+KS+Y7W2X/P789vi8Puzh4=";
     };
     "x86_64-darwin" = {
       slug = "darwin-x64";
       triple = "x86_64-apple-darwin";
-      hash = "sha256-FDGVdImj4zL3ke5pt0zzRGfQkO0jvVWoMK7YiVWzfx8=";
+      hash = "sha256-swoGZ6oXxxvcM3uW+Fscm7RzHVJIcuY6meJZfMuIsJg=";
     };
     "aarch64-darwin" = {
       slug = "darwin-arm64";
       triple = "aarch64-apple-darwin";
-      hash = "sha256-WpVT3xY7gkvcCScg6Jnu8A3APN+w442s6JQXSC+BV9c=";
+      hash = "sha256-qm54dRykPKnPuMDsHSb+rn6MEATTY7RYH7DPiJq6DKs=";
     };
   };
 
@@ -53,7 +53,7 @@ stdenv.mkDerivation {
 
   installPhase = ''
     runHook preInstall
-    install -Dm755 vendor/${source.triple}/codex/codex $out/bin/codex
+    install -Dm755 vendor/${source.triple}/bin/codex $out/bin/codex
     runHook postInstall
   '';
 
