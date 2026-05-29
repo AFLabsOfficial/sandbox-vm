@@ -51,6 +51,21 @@
     # forwarding their native TERM don't break ncurses apps
     environment.enableAllTerminfo = true;
 
+    # FIX:(@janezicmatej) enableAllTerminfo pulls termite.terminfo; termite's
+    # vte-ng patch breaks against vte 0.84.0 (vte::to_integral removed upstream).
+    # nixpkgs PR #522784 removed termite on 2026-05-23 but nixos-unstable hasn't
+    # fast-forwarded past it. drop this stub once the channel catches up.
+    nixpkgs.overlays = [
+      (_: prev: {
+        termite = prev.runCommand "termite-stub" {
+          outputs = [
+            "out"
+            "terminfo"
+          ];
+        } "mkdir -p $out $terminfo";
+      })
+    ];
+
     environment.systemPackages = with pkgs; [
       curl
       wget
