@@ -329,10 +329,17 @@ main() {
 		*,*) die "codex config dir may not contain commas: $codex_dir" ;;
 		esac
 
-		install_skill "$skill_source" "$codex_dir"
+		install_skill "$skill_source" "$codex_dir/.agents"
 
 		qemu_args+=(
 			-virtfs "local,path=$codex_dir,mount_tag=codex,security_model=none,id=fs${fs_id}"
+		)
+		fs_id=$((fs_id + 1))
+
+		local agents_dir="$codex_dir/.agents"
+		mkdir -p "$agents_dir"
+		qemu_args+=(
+			-virtfs "local,path=$agents_dir,mount_tag=agents,security_model=none,id=fs${fs_id}"
 		)
 		fs_id=$((fs_id + 1))
 	fi

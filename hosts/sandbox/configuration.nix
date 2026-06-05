@@ -119,12 +119,42 @@ in
         done
         [ "$have_tag" = "1" ] || exit 0
 
-        exec ${config.vm-9p-automount.mountShareScript} codex ${config.users.users.sandbox.home}/.codex
+        exec ${config.vm-9p-automount.mountShareScript} codex ${config.users.users.sandbox.home}/.config/codex
       '';
     };
   };
 
-  environment.sessionVariables.CODEX_HOME = "${config.users.users.sandbox.home}/.codex";
+  environment.sessionVariables.CODEX_HOME = "${config.users.users.sandbox.home}/.config/codex";
+
+  # writable codex agents dir via 9p — codex scans $HOME/.agents/skills/ for skills;
+  # that path is fixed and unrelated to $CODEX_HOME, so it needs its own mount
+  systemd.services.codex-agents-9p-mount = {
+    description = "Mount codex agents dir via 9p";
+    after = [
+      "local-fs.target"
+      "systemd-modules-load.service"
+    ];
+    wants = [ "systemd-modules-load.service" ];
+    wantedBy = [ "multi-user.target" ];
+    serviceConfig = {
+      Type = "oneshot";
+      RemainAfterExit = true;
+      ExecStart = pkgs.writeShellScript "agents-9p-mount" ''
+        have_tag=0
+        for tagfile in $(find /sys/devices -name mount_tag 2>/dev/null); do
+          [ -f "$tagfile" ] || continue
+          t=$(tr -d '\0' < "$tagfile")
+          if [ "$t" = "agents" ]; then
+            have_tag=1
+            break
+          fi
+        done
+        [ "$have_tag" = "1" ] || exit 0
+
+        exec ${config.vm-9p-automount.mountShareScript} agents ${config.users.users.sandbox.home}/.agents
+      '';
+    };
+  };
 
   # marker the sandbox-vm skill keys off — the skill's description tells the
   # in-vm assistant to auto-load when SANDBOX_VM=1 or /etc/sandbox-vm-release
