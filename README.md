@@ -20,7 +20,7 @@ Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
 **macOS**
 ```sh
-brew install just qemu curl gnupg coreutils bash
+brew install just qemu curl coreutils bash
 ```
 `coreutils` provides `gtimeout`, which `run.sh` needs to bound its SSH-readiness
 probe. `bash` is required because the scripts use features unavailable in the
@@ -29,10 +29,10 @@ bash 3 that ships with macOS.
 **Debian / Ubuntu**
 ```sh
 # x86_64 hosts
-sudo apt install just qemu-system-x86 qemu-kvm curl gnupg -y
+sudo apt install just qemu-system-x86 qemu-kvm curl -y
 
 # aarch64 hosts
-sudo apt install just qemu-system-arm qemu-efi-aarch64 curl gnupg -y
+sudo apt install just qemu-system-arm qemu-efi-aarch64 curl -y
 ```
 
 **WSL**
@@ -45,9 +45,6 @@ sudo usermod -aG kvm $USER
 ```
 
 Log out and back in for the group change to take effect.
-
-`gnupg` is optional but strongly recommended; without it, `pull` falls back to
-sha256-only, which does not authenticate against a network attacker.
 
 Images are built for **x86_64** (Intel/AMD) and **aarch64** (Apple Silicon,
 ARM Linux). The correct architecture is auto-detected. Apple Silicon Macs run
@@ -207,9 +204,9 @@ just list-images headless             # list available versions
 ```
 
 Downloaded images are cached in `~/.cache/sandbox-vm/` (or
-`$XDG_CACHE_HOME/sandbox-vm/` if set). SHA256 checksums are GPG-signed; the
-public keys are in [`KEYS`](KEYS). `pull` always verifies sha256 and verifies
-the signature when `gpg` is installed. Cached images are re-verified on every
+`$XDG_CACHE_HOME/sandbox-vm/` if set). `pull` verifies each image against its
+published SHA256 checksum (the `.sha256` sidecar), which guards against
+corrupted or truncated downloads. Cached images are re-verified on every
 launch; if the server is unreachable, `pull` transparently falls back to the
 cached image (still re-verified).
 
@@ -227,7 +224,6 @@ just build --headless                  # headless, host arch, requires nix
 just build --gui                       # gui variant
 just build --headless --arch aarch64   # cross-build
 just build --headless --docker         # via docker (Linux only, no nix required)
-just build --headless --sign           # sign the image after building
 ```
 
 Built images are placed in `dist/`. The `--docker` path requires Linux with

@@ -17,14 +17,13 @@ Options:
   --gui              Build GUI variant
   --arch <arch>      Target architecture (default: host)
   --docker           Build using Docker instead of nix (Linux only, requires KVM)
-  -s, --sign         Sign the image after building
   -h, --help         Show usage
 EOF
 	exit "${1:-0}"
 }
 
 main() {
-	local arch="" variant="" docker=false sign=false
+	local arch="" variant="" docker=false
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
@@ -44,10 +43,6 @@ main() {
 			docker=true
 			shift
 			;;
-		-s | --sign)
-			sign=true
-			shift
-			;;
 		-h | --help) usage ;;
 		*) die_usage "unknown option: $1" ;;
 		esac
@@ -59,10 +54,6 @@ main() {
 	local package="packages.${arch}-linux.sandbox-${variant}"
 
 	# preflight checks
-	if [ "$sign" = true ]; then
-		require_cmd gpg "--sign requires gpg"
-	fi
-
 	if [ "$docker" = true ]; then
 		require_cmd docker
 		[ "$(uname -s)" = "Linux" ] || die "--docker requires Linux (KVM is not available inside Docker on macOS)"
@@ -117,12 +108,19 @@ EOF
 	# shellcheck disable=SC2012
 	output="$(ls -t "${REPO_DIR}/dist/sandbox-${variant}-${arch}-"*.qcow2 2>/dev/null | head -1)" || true
 	[ -n "$output" ] || die "no image found in dist/"
-	echo "${green}${output}${reset}" >&2
-	echo "$output"
 
-	if [ "$sign" = true ]; then
-		bash "$SCRIPT_DIR/sign.sh" "$output"
-	fi
+	# generate the sha256 sidecar that pull.sh verifies against. the line is
+	# "<hash>  <basename>" — pull.sh binds the hash to that filename
+	local name base dir hash
+	name="$(basename "$output")"
+	base="${name%.qcow2}"
+	dir="$(dirname "$output")"
+	hash="$(sha256_file "$output")"
+	echo "$hash  $name" >"$dir/$base.sha256"
+
+	echo "${green}${output}${reset}" >&2
+	info "sha256: $hash"
+	echo "$output"
 }
 
 main "$@"

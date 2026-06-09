@@ -6,10 +6,6 @@ default:
 build *ARGS:
     bash scripts/build.sh {{ARGS}}
 
-# sign built images (sha256 + GPG)
-sign +images:
-    bash scripts/sign.sh {{images}}
-
 # remove build artifacts
 clean:
     rm -rf dist/ result result-*

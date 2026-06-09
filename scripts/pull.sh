@@ -19,14 +19,12 @@ CURL_OPTS=(--proto '=https' --proto-redir '=https')
 # fallback the partial is per-pid and unconditionally cleaned up via
 # FALLBACK_PARTIAL
 TMP_HASH=""
-TMP_SIG=""
 UNVERIFIED_PARTIAL=""
 FALLBACK_PARTIAL=""
 cleanup() {
 	[ -n "$UNVERIFIED_PARTIAL" ] && rm -f "$UNVERIFIED_PARTIAL"
 	[ -n "$FALLBACK_PARTIAL" ] && rm -f "$FALLBACK_PARTIAL"
 	[ -n "$TMP_HASH" ] && rm -f "$TMP_HASH"
-	[ -n "$TMP_SIG" ] && rm -f "$TMP_SIG"
 	return 0
 }
 trap cleanup EXIT
@@ -52,40 +50,6 @@ EOF
 	exit "${1:-0}"
 }
 
-verify_signature() {
-	local hash_file="$1" sig_file="$2" keyring="$3"
-	[ -f "$sig_file" ] || die "missing signature file: $sig_file"
-
-	if ! command -v gpg &>/dev/null; then
-		warn "gpg not installed; skipping signature verification"
-		warn "sha256 alone does not authenticate against a network attacker"
-		return 0
-	fi
-
-	local keys_file="$SCRIPT_DIR/../KEYS"
-	[ -f "$keys_file" ] || die "missing KEYS file: $keys_file"
-
-	# dedicated keyring so we don't pollute ~/.gnupg. re-import only when
-	# the committed KEYS file is newer than the cached keyring
-	mkdir -p "$keyring"
-	chmod 700 "$keyring"
-	local keys_mtime=0 keyring_mtime=0
-	keys_mtime=$(stat -c '%Y' "$keys_file" 2>/dev/null || stat -f '%m' "$keys_file")
-	if [ -f "$keyring/pubring.kbx" ]; then
-		keyring_mtime=$(stat -c '%Y' "$keyring/pubring.kbx" 2>/dev/null ||
-			stat -f '%m' "$keyring/pubring.kbx")
-	fi
-	if [ "$keys_mtime" -gt "$keyring_mtime" ]; then
-		GNUPGHOME="$keyring" gpg --quiet --import "$keys_file" ||
-			die "failed to import KEYS"
-	fi
-
-	info "verifying signature..."
-	GNUPGHOME="$keyring" gpg --verify "$sig_file" "$hash_file" ||
-		die "signature verification failed for $hash_file"
-	info "signature ok"
-}
-
 verify_hash() {
 	local file="$1" hash_file="$2" expected_name="$3"
 	[ -f "$hash_file" ] || die "missing hash file: $hash_file"
@@ -93,8 +57,8 @@ verify_hash() {
 	local expected_hash signed_name actual
 	expected_hash=$(awk '{print $1}' "$hash_file")
 	signed_name=$(awk '{print $2}' "$hash_file")
-	# bind hash to filename: signed .sha256 line is "<hash>  <name>";
-	# reject if the signed name isn't what we asked for
+	# bind hash to filename: the .sha256 line is "<hash>  <name>";
+	# reject if that name isn't what we asked for
 	[ "$signed_name" = "$expected_name" ] ||
 		die "hash file binds to wrong filename: $signed_name (expected $expected_name)"
 	actual=$(sha256_file "$file")
@@ -250,7 +214,7 @@ resolve_from_cache() {
 }
 
 # drop all but the latest N cached images per (variant, arch) group,
-# along with their sha256/asc/verified/partial siblings
+# along with their sha256/verified/partial siblings
 prune_cache() {
 	local cache_dir="$1" keep="$2"
 	local removed=0 groups group files total drop_count to_drop f base
@@ -271,7 +235,6 @@ prune_cache() {
 			info "pruning $f"
 			rm -f "$cache_dir/$f" \
 				"$cache_dir/${base}.sha256" \
-				"$cache_dir/${base}.sha256.asc" \
 				"$cache_dir/${f}.verified" \
 				"$cache_dir/${f}.partial" \
 				"$cache_dir/${f}.lock" \
@@ -287,7 +250,6 @@ prune_cache() {
 verify_cached() {
 	local image_path="$1"
 	local hash_path="${image_path%.qcow2}.sha256"
-	local sig_path="${hash_path}.asc"
 
 	if check_verified_stamp "$image_path"; then
 		info "verified stamp fresh: $(basename "$image_path")"
@@ -296,11 +258,6 @@ verify_cached() {
 
 	[ -f "$hash_path" ] ||
 		die "cached image $image_path has no .sha256 sidecar; re-run with --force"
-	[ -f "$sig_path" ] ||
-		die "cached image $image_path has no .sha256.asc sidecar; re-run with --force"
-	local cache_dir
-	cache_dir=$(dirname "$image_path")
-	verify_signature "$hash_path" "$sig_path" "$cache_dir/keyring"
 	verify_hash "$image_path" "$hash_path" "$(basename "$image_path")"
 	write_verified_stamp "$image_path" "$(awk '{print $1}' "$hash_path")"
 }
@@ -470,15 +427,12 @@ main() {
 		return 0
 	fi
 
-	local hashname signame url hash_url sig_url dest hash_dest sig_dest
+	local hashname url hash_url dest hash_dest
 	hashname="${filename%.qcow2}.sha256"
-	signame="${hashname}.asc"
 	url="$BASE_URL/$filename"
 	hash_url="$BASE_URL/$hashname"
-	sig_url="$BASE_URL/$signame"
 	dest="$cache_dir/$filename"
 	hash_dest="$cache_dir/$hashname"
-	sig_dest="$cache_dir/$signame"
 
 	# cache hit: re-verify with cached sidecars
 	if [ -f "$dest" ] && [ "$force" != true ]; then
@@ -512,14 +466,10 @@ main() {
 
 	info "downloading: $filename"
 	TMP_HASH="$cache_dir/.pull-$$-$hashname"
-	TMP_SIG="$cache_dir/.pull-$$-$signame"
 
-	# sidecars first: a few KB, tells us early if the release is well-formed
+	# sidecar first: a few KB, tells us early if the release is well-formed
 	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_HASH" "$hash_url" ||
 		die "failed to download $hash_url"
-	curl "${CURL_OPTS[@]}" -f -sSL -o "$TMP_SIG" "$sig_url" ||
-		die "failed to download $sig_url"
-	verify_signature "$TMP_HASH" "$TMP_SIG" "$cache_dir/keyring"
 
 	# qcow2: resume-capable. partial persists on interrupt so a re-run
 	# continues from where we stopped. --retry handles flaky networks
@@ -532,18 +482,16 @@ main() {
 	verify_hash "$partial" "$TMP_HASH" "$filename"
 	UNVERIFIED_PARTIAL=""
 
-	# promote: track $dest via UNVERIFIED_PARTIAL and retarget each TMP_ at
-	# its final path, so the cleanup trap unwinds any partially-promoted
-	# triplet if we die between moves
+	# promote: track $dest via UNVERIFIED_PARTIAL and retarget TMP_HASH at
+	# its final path, so the cleanup trap unwinds a partially-promoted
+	# pair if we die between moves
 	mv "$partial" "$dest"
 	FALLBACK_PARTIAL=""
 	UNVERIFIED_PARTIAL="$dest"
 	mv "$TMP_HASH" "$hash_dest"
 	TMP_HASH="$hash_dest"
-	mv "$TMP_SIG" "$sig_dest"
-	TMP_SIG="$sig_dest"
-	# full triplet present — clear all trackers so cleanup leaves it alone
-	UNVERIFIED_PARTIAL="" TMP_HASH="" TMP_SIG=""
+	# full pair present — clear all trackers so cleanup leaves it alone
+	UNVERIFIED_PARTIAL="" TMP_HASH=""
 
 	# write stamp so future launches hit the fast path in verify_cached
 	write_verified_stamp "$dest" "$(awk '{print $1}' "$hash_dest")"
