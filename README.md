@@ -6,11 +6,14 @@ Everything resets on shutdown.
 
 **Choose your style:**
 
-| | Headless | GUI |
+| | Headless | GUI _(experimental)_ |
 |---|---|---|
 | **Access** | Auto-connects via SSH | Full GNOME desktop in a window |
 | **Best for** | Terminal-comfortable developers | Visual workflows, less CLI experience |
 | **Login** | Automatic (any SSH key accepted) | Auto-login, no passwords |
+
+> **Note:** The GUI variant is **experimental** — limited work has gone into it
+> so far, so expect rough edges. Headless is the recommended way to run.
 
 **What's included:** Claude Code, OpenAI Codex, git, docker, tmux, ripgrep, and more.
 Mount your projects from the host, authenticate once, and you're ready to go.
