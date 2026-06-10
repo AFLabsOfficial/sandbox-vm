@@ -194,7 +194,7 @@ extra space costs nothing on the host until the guest actually writes to it.
 
 ## Images
 
-Images are hosted at [dl.aflabs.org/iso](https://dl.aflabs.org/iso/).
+Images are hosted at [dl.aflabs.com/iso](https://dl.aflabs.com/iso/).
 `just run-headless` / `just run-gui` **auto-pull the latest image** on launch;
 pass `--no-pull` to stay fully offline and use the latest cached image.
 

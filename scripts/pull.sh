@@ -7,7 +7,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 source "$SCRIPT_DIR/lib.sh"
 setup_colors
 
-BASE_URL="https://dl.aflabs.org/iso"
+BASE_URL="https://dl.aflabs.com/iso"
 
 # refuse to follow any redirect off https, even if the server sends one
 CURL_OPTS=(--proto '=https' --proto-redir '=https')
