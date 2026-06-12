@@ -1,6 +1,11 @@
 stages:
   - build
 
+workflow:
+  rules:
+    # Run only when a new version tag is pushed, e.g. v0.8.0
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+
 .build-image:
   stage: build
   image: nixos/nix:latest
@@ -10,35 +15,32 @@ stages:
       experimental-features = nix-command flakes
       download-buffer-size = 2147483648
       system-features = kvm benchmark big-parallel nixos-test
-      extra-platforms = aarch64-linux
       EOF
 
 build-headless-x86_64:
   extends: .build-image
   tags:
-    - flarenetwork-kvm
+    - REPLACE-WITH-X86-KVM-RUNNER-TAG
   script:
     - nix build .#packages.x86_64-linux.sandbox-headless
-
-build-headless-aarch64:
-  extends: .build-image
-  tags:
-    - flarenetwork-kvm
-  timeout: 2h
-  script:
-    - nix build .#packages.aarch64-linux.sandbox-headless
 
 build-gui-x86_64:
   extends: .build-image
   tags:
-    - flarenetwork-kvm
+    - REPLACE-WITH-X86-KVM-RUNNER-TAG
   script:
     - nix build .#packages.x86_64-linux.sandbox-gui
+
+build-headless-aarch64:
+  extends: .build-image
+  tags:
+    - arm-kvm
+  script:
+    - nix build .#packages.aarch64-linux.sandbox-headless
 
 build-gui-aarch64:
   extends: .build-image
   tags:
-    - flarenetwork-kvm
-  timeout: 3h
+    - arm-kvm
   script:
     - nix build .#packages.aarch64-linux.sandbox-gui
