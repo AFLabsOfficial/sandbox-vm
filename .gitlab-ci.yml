@@ -20,14 +20,14 @@ workflow:
 build-headless-x86_64:
   extends: .build-image
   tags:
-    - REPLACE-WITH-X86-KVM-RUNNER-TAG
+    - x86-kvm
   script:
     - nix build .#packages.x86_64-linux.sandbox-headless
 
 build-gui-x86_64:
   extends: .build-image
   tags:
-    - REPLACE-WITH-X86-KVM-RUNNER-TAG
+    - x86-kvm
   script:
     - nix build .#packages.x86_64-linux.sandbox-gui
 
