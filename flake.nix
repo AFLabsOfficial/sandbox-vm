@@ -24,7 +24,7 @@
     let
       inherit (nixpkgs) lib;
 
-      version = "v0.9.0";
+      version = "v0.9.1";
 
       systems = [
         "x86_64-linux"
