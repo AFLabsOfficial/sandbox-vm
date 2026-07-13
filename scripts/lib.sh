@@ -53,13 +53,15 @@ normalize_arch() {
 }
 
 sha256_file() {
+	local out
 	if command -v sha256sum &>/dev/null; then
-		sha256sum "$1" | awk '{print $1}'
+		out=$(sha256sum "$1")
 	elif command -v shasum &>/dev/null; then
-		shasum -a 256 "$1" | awk '{print $1}'
+		out=$(shasum -a 256 "$1")
 	else
 		die "sha256sum or shasum required"
 	fi
+	echo "${out%% *}"
 }
 
 require_cmd() {

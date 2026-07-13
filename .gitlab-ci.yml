@@ -1,0 +1,61 @@
+stages:
+  - build
+
+workflow:
+  rules:
+    # Run only when a new version tag is pushed, e.g. v0.8.0
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+
+# scp the built qcow2 + .sha256 to ~/inc/ on the deploy host; openssh isn't in
+# the nix image so it's pulled on demand
+.scp-images: &scp-images 'nix shell nixpkgs#openssh --command scp -P ${SSH_PORT:-22} dist/*.qcow2 dist/*.sha256 "$SSH_DEPLOY_HOST:~/inc/"'
+
+.build-image:
+  stage: build
+  image: nixos/nix:2.34.7@sha256:bf1d938835ab96312f098fa6c2e9cab367728e0aad0646ee3e02a787c80d8fb8
+  before_script:
+    # /dev/kvm is root:kvm 0660; the image-builder vm runs in nix's build
+    # sandbox and can't open it, so qemu falls back to tcg and stalls
+    - 'if [ -e /dev/kvm ]; then chmod 0666 /dev/kvm; fi'
+    - |
+      cat >> /etc/nix/nix.conf <<EOF
+      experimental-features = nix-command flakes
+      system-features = kvm benchmark big-parallel nixos-test
+      EOF
+    # ssh key material for the scp deploy
+    - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+    - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+    - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+    - chmod 600 ~/.ssh/id_ed25519
+
+build-headless-x86_64:
+  extends: .build-image
+  tags:
+    - x86-kvm
+  script:
+    - bash scripts/build.sh --headless --arch x86_64
+    - *scp-images
+
+# build-gui-x86_64:
+#   extends: .build-image
+#   tags:
+#     - x86-kvm
+#   script:
+#     - bash scripts/build.sh --gui --arch x86_64
+#     - *scp-images
+
+build-headless-aarch64:
+  extends: .build-image
+  tags:
+    - arm-kvm
+  script:
+    - bash scripts/build.sh --headless --arch aarch64
+    - *scp-images
+
+# build-gui-aarch64:
+#   extends: .build-image
+#   tags:
+#     - arm-kvm
+#   script:
+#     - bash scripts/build.sh --gui --arch aarch64
+#     - *scp-images
