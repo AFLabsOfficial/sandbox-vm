@@ -1,18 +1,36 @@
 stages:
   - build
+  - publish
+  - maintenance
 
 workflow:
   rules:
     # Run only when a new version tag is pushed, e.g. v0.8.0
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    # nightly nix cache gc
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    # manual pipeline run, for the maintenance jobs
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+
+.nix-image: &nix-image nixos/nix:2.34.7@sha256:bf1d938835ab96312f098fa6c2e9cab367728e0aad0646ee3e02a787c80d8fb8
+
+.release-only: &release-only
+  - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
 
 # scp the built qcow2 + .sha256 to ~/inc/ on the deploy host; openssh isn't in
 # the nix image so it's pulled on demand
 .scp-images: &scp-images 'nix shell nixpkgs#openssh --command scp -P ${SSH_PORT:-22} dist/*.qcow2 dist/*.sha256 "$SSH_DEPLOY_HOST:~/inc/"'
 
+.ssh-key-setup: &ssh-key-setup
+  - mkdir -p ~/.ssh && chmod 700 ~/.ssh
+  - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+  - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
+  - chmod 600 ~/.ssh/id_ed25519
+
 .build-image:
   stage: build
-  image: nixos/nix:2.34.7@sha256:bf1d938835ab96312f098fa6c2e9cab367728e0aad0646ee3e02a787c80d8fb8
+  image: *nix-image
+  rules: *release-only
   before_script:
     # /dev/kvm is root:kvm 0660; the image-builder vm runs in nix's build
     # sandbox and can't open it, so qemu falls back to tcg and stalls
@@ -36,13 +54,13 @@ build-headless-x86_64:
     - bash scripts/build.sh --headless --arch x86_64
     - *scp-images
 
-# build-gui-x86_64:
-#   extends: .build-image
-#   tags:
-#     - x86-kvm
-#   script:
-#     - bash scripts/build.sh --gui --arch x86_64
-#     - *scp-images
+build-gui-x86_64:
+  extends: .build-image
+  tags:
+    - x86-kvm
+  script:
+    - bash scripts/build.sh --gui --arch x86_64
+    - *scp-images
 
 build-headless-aarch64:
   extends: .build-image
@@ -52,10 +70,69 @@ build-headless-aarch64:
     - bash scripts/build.sh --headless --arch aarch64
     - *scp-images
 
-# build-gui-aarch64:
-#   extends: .build-image
-#   tags:
-#     - arm-kvm
-#   script:
-#     - bash scripts/build.sh --gui --arch aarch64
-#     - *scp-images
+build-gui-aarch64:
+  extends: .build-image
+  tags:
+    - arm-kvm
+  script:
+    - bash scripts/build.sh --gui --arch aarch64
+    - *scp-images
+
+# manual; unlocks once every build job in the previous stage has succeeded.
+# moves the uploaded images out of ~/inc into the served ~/http/iso
+publish-images:
+  stage: publish
+  image: *nix-image
+  tags:
+    - x86-kvm
+  rules:
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: manual
+  before_script: *ssh-key-setup
+  script:
+    - nix shell nixpkgs#openssh --command scp -P ${SSH_PORT:-22} scripts/publish-images.sh "$SSH_DEPLOY_HOST:~/publish-images.sh"
+    - nix shell nixpkgs#openssh --command ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" 'bash ~/publish-images.sh'
+
+# emptying the volume is the only safe way to reclaim the runner's persistent
+# nix cache: nothing in the ci store is gcrooted, so nix-collect-garbage also
+# deletes the paths the nix image itself runs from and the volume stops booting.
+# docker re-seeds an empty volume on the next job. alpine is used because its
+# binaries do not live in /nix
+.nix-cache-clean:
+  stage: maintenance
+  image: alpine:3.20
+  tags:
+    - arm-kvm
+
+# scheduled daily; only reclaims once the backing disk crosses the threshold so
+# the cache stays warm on normal days
+nix-cache-gc:
+  extends: .nix-cache-clean
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+  script:
+    - |
+      threshold="${GC_THRESHOLD_PERCENT:-80}"
+      used="$(df -P /nix | awk 'NR==2 {print $5}' | tr -dc '0-9')"
+      echo "nix cache disk usage: ${used}% (threshold ${threshold}%)"
+      if [ "${used:-0}" -ge "$threshold" ]; then
+        find /nix -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+        echo "cache emptied, docker re-seeds it on the next job"
+      else
+        echo "below threshold, keeping cache warm"
+      fi
+
+# unconditional wipe, e.g. after bumping the pinned nix image
+nix-cache-reset:
+  extends: .nix-cache-clean
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+      when: manual
+  script:
+    - |
+      find /nix -mindepth 1 -maxdepth 1 -exec rm -rf {} +
+      echo "entries left in /nix: $(ls -A /nix | wc -l)"
