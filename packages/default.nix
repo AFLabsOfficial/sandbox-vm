@@ -2,4 +2,5 @@
 {
   claude-code = import ./claude-code/package.nix { inherit pkgs; };
   codex = import ./codex/package.nix { inherit pkgs; };
+  pi = import ./pi/package.nix { inherit pkgs; };
 }
