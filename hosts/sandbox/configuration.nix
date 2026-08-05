@@ -88,9 +88,10 @@ in
     user = "sandbox";
   };
 
-  # ensure .config exists with correct ownership before automount
+  # ensure mount parents exist with correct ownership before automount
   systemd.tmpfiles.rules = [
     "d ${config.users.users.sandbox.home}/.config 0700 sandbox users -"
+    "d ${config.users.users.sandbox.home}/.pi 0700 sandbox users -"
     "d ${codexSqliteHome} 0700 sandbox users -"
     "d ${config.users.users.sandbox.home}/.local 0755 sandbox users -"
     "d ${config.users.users.sandbox.home}/.local/state 0755 sandbox users -"
@@ -110,6 +111,15 @@ in
   };
 
   environment.sessionVariables.CODEX_HOME = "${config.users.users.sandbox.home}/.codex";
+
+  # NOTE:(@janezicmatej) pi's config dir is ~/.pi/agent, not ~/.pi — the parent
+  # also holds nothing else, so the share is mounted one level down
+  systemd.services.pi-9p-mount = mk9pMount {
+    tool = "pi";
+    target = "${config.users.users.sandbox.home}/.pi/agent";
+  };
+
+  environment.sessionVariables.PI_CODING_AGENT_DIR = "${config.users.users.sandbox.home}/.pi/agent";
 
   # marker the sandbox-vm skill keys off — the skill's description tells the
   # in-vm assistant to auto-load when SANDBOX_VM=1 or /etc/sandbox-vm-release

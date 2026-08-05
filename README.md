@@ -15,7 +15,7 @@ Everything resets on shutdown.
 > **Note:** The GUI variant is **experimental** — limited work has gone into it
 > so far, so expect rough edges. Headless is the recommended way to run.
 
-**What's included:** Claude Code, OpenAI Codex, git, docker, tmux, ripgrep, and more.
+**What's included:** Claude Code, OpenAI Codex, Pi, git, docker, tmux, ripgrep, and more.
 Mount your projects from the host, authenticate once, and you're ready to go.
 Need something else? Install it with `nix profile add nixpkgs#<package>`.
 
@@ -111,6 +111,7 @@ just ssh 22022 -L 8080:localhost:8080   # port forward
   --mount <path>         Mount host directory into VM (repeatable)
   --no-claude            Skip mounting claude config dir
   --no-codex             Skip mounting codex config dir
+  --no-pi                Skip mounting pi config dir
   --no-pull              Use latest cached image instead of downloading
   --arch <arch>          Guest architecture (default: host arch)
   --disk-size <size>     Resize guest disk (e.g. 50G)
@@ -148,17 +149,34 @@ Codex config is mounted the same way. Uses `CODEX_HOME` if set, otherwise
 falls back to `~/.config/sandbox-vm/codex`. Codex is pre-installed and will
 pick up your auth automatically. Pass `--no-codex` to skip mounting.
 
+### Pi
+
+[Pi](https://pi.dev) config is mounted the same way. Uses
+`PI_CODING_AGENT_DIR` if set, otherwise falls back to
+`~/.config/sandbox-vm/pi`. The share is Pi's agent dir (`~/.pi/agent` inside
+the VM, so `auth.json`, `settings.json`, sessions, and installed packages all
+round-trip). Pi is pre-installed and will pick up your auth automatically.
+Pass `--no-pi` to skip mounting.
+
+Pi packages (`pi install npm:@foo/bar`, `pi install git:github.com/user/repo`)
+bundle the extensions, skills, prompt templates, and themes that Pi leaves out
+of its core. Installing one runs `npm install`, so Pi ships with its own
+`node` / `npm` on PATH — visible inside Pi, not to the rest of the VM. It is
+there for Pi's package installs; for project work install your own
+(`nix profile add nixpkgs#nodejs`), which then takes precedence inside Pi too.
+
 ### `/sandbox-vm` skill
 
 This repo ships a `sandbox-vm` skill that gives the in-VM assistant context
 about the disposable NixOS environment (package install, mounted paths, what
 survives shutdown). The skill source lives in [`skills/sandbox-vm/`](skills/sandbox-vm/).
 
-`run.sh` installs it into both `$CLAUDE_CONFIG_DIR/skills/sandbox-vm/` and
-`$CODEX_HOME/skills/sandbox-vm/` on every launch, syncing to the repo version
-if its contents differ. There is no manual install step — invoke it inside
-the VM with `/sandbox-vm` once the VM is up. Skipping the config mount
-(`--no-claude` / `--no-codex`) skips the install for that tool too.
+`run.sh` installs it into `$CLAUDE_CONFIG_DIR/skills/sandbox-vm/`,
+`$CODEX_HOME/skills/sandbox-vm/`, and `$PI_CODING_AGENT_DIR/skills/sandbox-vm/`
+on every launch, syncing to the repo version if its contents differ. There is
+no manual install step — invoke it inside the VM with `/sandbox-vm`
+(`/skill:sandbox-vm` in Pi) once the VM is up. Skipping the config mount
+(`--no-claude` / `--no-codex` / `--no-pi`) skips the install for that tool too.
 
 ## Installing additional tools
 

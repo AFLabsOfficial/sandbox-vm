@@ -56,6 +56,7 @@ Options:
   --mount <path>         Mount host directory into VM (repeatable)
   --no-claude            Skip mounting claude config dir
   --no-codex             Skip mounting codex config dir
+  --no-pi                Skip mounting pi config dir
   --disk-size <size>     Resize guest disk (e.g. 50G, default: image built-in size)
   --memory <size>        VM memory (default: 4G)
   --cpus <n>             VM CPUs (default: 2)
@@ -73,7 +74,7 @@ main() {
 		die "timeout(1) not found; on macos: brew install coreutils"
 
 	local ssh_port="" memory="$SANDBOX_DEFAULT_MEMORY" cpus="$SANDBOX_DEFAULT_CPUS"
-	local claude=true codex=true no_pull=false
+	local claude=true codex=true pi=true no_pull=false
 	local image="" guest_arch="" gui="" disk_size=""
 	local -a mounts=()
 
@@ -105,6 +106,10 @@ main() {
 			;;
 		--no-codex)
 			codex=false
+			shift
+			;;
+		--no-pi)
+			pi=false
 			shift
 			;;
 		--disk-size)
@@ -333,6 +338,28 @@ main() {
 
 		qemu_args+=(
 			-virtfs "local,path=$codex_dir,mount_tag=codex,security_model=none,id=fs${fs_id}"
+		)
+		fs_id=$((fs_id + 1))
+	fi
+
+	if [ "$pi" = true ]; then
+		# pi's config dir is ~/.pi/agent, so the share holds the agent dir
+		# itself and the guest mounts it at that path
+		local pi_dir="${PI_CODING_AGENT_DIR:-}"
+		if [ -z "$pi_dir" ]; then
+			pi_dir="${XDG_CONFIG_HOME:-$HOME/.config}/sandbox-vm/pi"
+			warn "PI_CODING_AGENT_DIR not set, using $pi_dir"
+		fi
+		mkdir -p "$pi_dir"
+		pi_dir=$(realpath "$pi_dir")
+		case "$pi_dir" in
+		*,*) die "pi config dir may not contain commas: $pi_dir" ;;
+		esac
+
+		install_skill "$skill_source" "$pi_dir"
+
+		qemu_args+=(
+			-virtfs "local,path=$pi_dir,mount_tag=pi,security_model=none,id=fs${fs_id}"
 		)
 		fs_id=$((fs_id + 1))
 	fi
