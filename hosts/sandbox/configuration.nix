@@ -170,6 +170,7 @@ in
   environment.systemPackages = [
     inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
     codexWrapped
+    inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.pi
   ]
   ++ (with pkgs; [
     # tools
