@@ -98,13 +98,18 @@ empty/missing variables.
 
 ## Pre-installed
 
-`claude-code`, `codex`, `git`, `docker`, `tmux`, `just`,
+`claude-code`, `codex`, `pi`, `git`, `docker`, `tmux`, `just`,
 `neovim` (`vim` / `vi`), `ripgrep` (`rg`), `fd`, `jq`, `fzf`.
 
 **Not preinstalled** — every language runtime and package manager. Don't
 probe `which python` / `which node` / `which cargo` to discover the
 environment; assume nothing is there until you `nix profile add` it. Common
 adds: `nixpkgs#{python313,python314,uv,nodejs,pnpm,go,rustc,cargo,gcc,jdk,gradle,maven,ruby,bundler,elixir,ghc,cabal-install,php}`.
+
+One exception, and only inside `pi`: its wrapper appends a `node` / `npm` to
+PATH so `pi install` works. That runtime is pi's own — don't build project
+tooling on it, `nix profile add nixpkgs#nodejs` instead (a node you install
+that way takes precedence inside pi too).
 
 ## Installing packages
 
@@ -164,5 +169,6 @@ Two boundaries remain:
 
 ## Host config mounts
 
-`$CLAUDE_CONFIG_DIR` and `$CODEX_HOME` are mounted from the host. Sessions,
-memories, settings, and skills round-trip — edits here are the host's edits.
+`$CLAUDE_CONFIG_DIR`, `$CODEX_HOME`, and `$PI_CODING_AGENT_DIR` are mounted
+from the host. Sessions, memories, settings, and skills round-trip — edits
+here are the host's edits.

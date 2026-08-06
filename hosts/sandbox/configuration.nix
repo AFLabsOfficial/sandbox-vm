@@ -20,6 +20,39 @@ let
   '';
 
   sandboxVmState = "${config.users.users.sandbox.home}/.local/state/sandbox-vm";
+
+  # writable agent config via 9p, direct when host uids match, bindfs fallback
+  # otherwise. the tag probe keeps the unit a no-op when the host did not share
+  # that tag at all (run.sh --no-claude and friends)
+  mk9pMount =
+    { tool, target }:
+    {
+      description = "Mount ${tool} config via 9p";
+      after = [
+        "local-fs.target"
+        "systemd-modules-load.service"
+      ];
+      wants = [ "systemd-modules-load.service" ];
+      wantedBy = [ "multi-user.target" ];
+      serviceConfig = {
+        Type = "oneshot";
+        RemainAfterExit = true;
+        ExecStart = pkgs.writeShellScript "${tool}-9p-mount" ''
+          have_tag=0
+          for tagfile in $(find /sys/devices -name mount_tag 2>/dev/null); do
+            [ -f "$tagfile" ] || continue
+            t=$(tr -d '\0' < "$tagfile")
+            if [ "$t" = "${tool}" ]; then
+              have_tag=1
+              break
+            fi
+          done
+          [ "$have_tag" = "1" ] || exit 0
+
+          exec ${config.vm-9p-automount.mountShareScript} ${tool} ${target}
+        '';
+      };
+    };
 in
 {
   imports = [
@@ -55,76 +88,38 @@ in
     user = "sandbox";
   };
 
-  # ensure .config exists with correct ownership before automount
+  # ensure mount parents exist with correct ownership before automount
   systemd.tmpfiles.rules = [
     "d ${config.users.users.sandbox.home}/.config 0700 sandbox users -"
+    "d ${config.users.users.sandbox.home}/.pi 0700 sandbox users -"
     "d ${codexSqliteHome} 0700 sandbox users -"
     "d ${config.users.users.sandbox.home}/.local 0755 sandbox users -"
     "d ${config.users.users.sandbox.home}/.local/state 0755 sandbox users -"
     "d ${sandboxVmState} 0755 sandbox users -"
   ];
 
-  # writable claude config via 9p, direct when host uids match, bindfs fallback otherwise
-  systemd.services.claude-9p-mount = {
-    description = "Mount claude config via 9p";
-    after = [
-      "local-fs.target"
-      "systemd-modules-load.service"
-    ];
-    wants = [ "systemd-modules-load.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "claude-9p-mount" ''
-        have_tag=0
-        for tagfile in $(find /sys/devices -name mount_tag 2>/dev/null); do
-          [ -f "$tagfile" ] || continue
-          t=$(tr -d '\0' < "$tagfile")
-          if [ "$t" = "claude" ]; then
-            have_tag=1
-            break
-          fi
-        done
-        [ "$have_tag" = "1" ] || exit 0
-
-        exec ${config.vm-9p-automount.mountShareScript} claude ${config.users.users.sandbox.home}/.config/claude
-      '';
-    };
+  systemd.services.claude-9p-mount = mk9pMount {
+    tool = "claude";
+    target = "${config.users.users.sandbox.home}/.config/claude";
   };
 
   environment.sessionVariables.CLAUDE_CONFIG_DIR = "${config.users.users.sandbox.home}/.config/claude";
 
-  # writable codex config via 9p, direct when host uids match, bindfs fallback otherwise
-  systemd.services.codex-9p-mount = {
-    description = "Mount codex config via 9p";
-    after = [
-      "local-fs.target"
-      "systemd-modules-load.service"
-    ];
-    wants = [ "systemd-modules-load.service" ];
-    wantedBy = [ "multi-user.target" ];
-    serviceConfig = {
-      Type = "oneshot";
-      RemainAfterExit = true;
-      ExecStart = pkgs.writeShellScript "codex-9p-mount" ''
-        have_tag=0
-        for tagfile in $(find /sys/devices -name mount_tag 2>/dev/null); do
-          [ -f "$tagfile" ] || continue
-          t=$(tr -d '\0' < "$tagfile")
-          if [ "$t" = "codex" ]; then
-            have_tag=1
-            break
-          fi
-        done
-        [ "$have_tag" = "1" ] || exit 0
-
-        exec ${config.vm-9p-automount.mountShareScript} codex ${config.users.users.sandbox.home}/.codex
-      '';
-    };
+  systemd.services.codex-9p-mount = mk9pMount {
+    tool = "codex";
+    target = "${config.users.users.sandbox.home}/.codex";
   };
 
   environment.sessionVariables.CODEX_HOME = "${config.users.users.sandbox.home}/.codex";
+
+  # NOTE:(@janezicmatej) pi's config dir is ~/.pi/agent, not ~/.pi — the parent
+  # also holds nothing else, so the share is mounted one level down
+  systemd.services.pi-9p-mount = mk9pMount {
+    tool = "pi";
+    target = "${config.users.users.sandbox.home}/.pi/agent";
+  };
+
+  environment.sessionVariables.PI_CODING_AGENT_DIR = "${config.users.users.sandbox.home}/.pi/agent";
 
   # marker the sandbox-vm skill keys off — the skill's description tells the
   # in-vm assistant to auto-load when SANDBOX_VM=1 or /etc/sandbox-vm-release
@@ -170,6 +165,7 @@ in
   environment.systemPackages = [
     inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.claude-code
     codexWrapped
+    inputs.self.packages.${pkgs.stdenv.hostPlatform.system}.pi
   ]
   ++ (with pkgs; [
     # tools
