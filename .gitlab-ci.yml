@@ -1,4 +1,6 @@
 stages:
+  - release
+  - check
   - build
   - publish
   - maintenance
@@ -7,6 +9,8 @@ workflow:
   rules:
     # Run only when a new version tag is pushed, e.g. v0.8.0
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    # merge requests, so a release mr is verified before it is merged and tagged
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     # nightly nix cache gc
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     # manual pipeline run, for the maintenance jobs
@@ -32,6 +36,55 @@ variables:
   - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
   - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
   - chmod 600 ~/.ssh/id_ed25519
+
+# manual; run a web pipeline on the default branch to open the next release mr.
+# bumps the lockfile and every packaged tool, one commit each, bumps the patch
+# version in flake.nix and opens the merge request through git push options.
+#
+# needs RELEASE_TOKEN: a project access token with the developer role and the
+# write_repository scope, masked so git cannot leak it through the push url
+prepare-release-mr:
+  stage: release
+  image: *nix-image
+  tags:
+    - x86-kvm
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  variables:
+    # the release branch is pushed from this checkout, so the shallow default
+    # clone is not enough
+    GIT_DEPTH: 0
+  before_script:
+    - test -n "${RELEASE_TOKEN:-}" || { echo "RELEASE_TOKEN is not set"; exit 1; }
+  script:
+    - bash scripts/release-mr.sh
+
+# what the tag pipeline would fail on, minus the image build itself: both image
+# derivations are instantiated (which forces the whole nixos and home-manager
+# evaluation) and the packaged tools are built, so a bump that breaks evaluation
+# or carries a bad hash surfaces on the merge request instead of after tagging.
+# assembling the images is not reproduced here, so failures in that step are
+# still only visible in the tag pipeline
+.check-flake:
+  stage: check
+  image: *nix-image
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+check-x86_64:
+  extends: .check-flake
+  tags:
+    - x86-kvm
+  script:
+    - bash scripts/check.sh --arch x86_64
+
+check-aarch64:
+  extends: .check-flake
+  tags:
+    - arm-kvm
+  script:
+    - bash scripts/check.sh --arch aarch64
 
 .build-image:
   stage: build
