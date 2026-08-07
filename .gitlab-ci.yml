@@ -1,5 +1,6 @@
 stages:
   - release
+  - check
   - build
   - publish
   - maintenance
@@ -8,6 +9,8 @@ workflow:
   rules:
     # Run only when a new version tag is pushed, e.g. v0.8.0
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    # merge requests, so a release mr is verified before it is merged and tagged
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
     # nightly nix cache gc
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     # manual pipeline run, for the maintenance jobs
@@ -56,6 +59,32 @@ prepare-release-mr:
     - test -n "${RELEASE_TOKEN:-}" || { echo "RELEASE_TOKEN is not set"; exit 1; }
   script:
     - bash scripts/release-mr.sh
+
+# what the tag pipeline would fail on, minus the image build itself: both image
+# derivations are instantiated (which forces the whole nixos and home-manager
+# evaluation) and the packaged tools are built, so a bump that breaks evaluation
+# or carries a bad hash surfaces on the merge request instead of after tagging.
+# assembling the images is not reproduced here, so failures in that step are
+# still only visible in the tag pipeline
+.check-flake:
+  stage: check
+  image: *nix-image
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+
+check-x86_64:
+  extends: .check-flake
+  tags:
+    - x86-kvm
+  script:
+    - bash scripts/check.sh --arch x86_64
+
+check-aarch64:
+  extends: .check-flake
+  tags:
+    - arm-kvm
+  script:
+    - bash scripts/check.sh --arch aarch64
 
 .build-image:
   stage: build
