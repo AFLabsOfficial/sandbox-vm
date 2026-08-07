@@ -149,6 +149,22 @@ publish-images:
     - scp -P ${SSH_PORT:-22} scripts/publish-images.sh "$SSH_DEPLOY_HOST:~/publish-images.sh"
     - ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" "bash ~/publish-images.sh --id '$CI_PIPELINE_ID' --tag '$CI_COMMIT_TAG'"
 
+# scheduled daily; deletes staging dirs of releases that never published, which
+# nothing else collects. INC_RETENTION_DAYS keeps recent failures inspectable
+inc-prune:
+  stage: maintenance
+  image: *nix-image
+  tags:
+    - x86-kvm
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
+      when: manual
+  before_script: *ssh-key-setup
+  script:
+    - scp -P ${SSH_PORT:-22} scripts/prune-inc.sh "$SSH_DEPLOY_HOST:~/prune-inc.sh"
+    - ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" "bash ~/prune-inc.sh --days '${INC_RETENTION_DAYS:-7}'"
+
 # emptying the volume is the only safe way to reclaim the runner's persistent
 # nix cache: nothing in the ci store is gcrooted, so nix-collect-garbage also
 # deletes the paths the nix image itself runs from and the volume stops booting.
