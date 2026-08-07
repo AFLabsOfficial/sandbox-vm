@@ -2,7 +2,7 @@
 
 let
   inherit (pkgs) stdenv lib;
-  version = "0.84.0";
+  version = "0.84.1";
 
   # upstream ships platform-native binaries as github release assets; the npm
   # package is a plain node package that needs a node runtime, the release
@@ -10,19 +10,19 @@ let
   sources = {
     "x86_64-linux" = {
       slug = "linux-x64";
-      hash = "sha256-q0ZLSsEaAM7QIIWzwTNj11ixfCFLCMD7JcPYoIIuXSw=";
+      hash = "sha256-AuCiX+5C9zszQXD9SDzizlPE3JupDGgrAAdxGfr2n84=";
     };
     "aarch64-linux" = {
       slug = "linux-arm64";
-      hash = "sha256-AFx3hH5qNzASWptZUB8PBJJnFGMRTWx1D20wmYNj0AE=";
+      hash = "sha256-tFs7jN4/WteL4Wv67zWnQC/3LK0BmWZ9g6fBVximgHk=";
     };
     "x86_64-darwin" = {
       slug = "darwin-x64";
-      hash = "sha256-YMSM7Gh/XpK+NXE6kXkASay5yHXX9Nr33a6cmXHGx0s=";
+      hash = "sha256-fVYQQjO4YZZR7kXwiFCxlCNmwbHlDJYrkH6kkzO4hAQ=";
     };
     "aarch64-darwin" = {
       slug = "darwin-arm64";
-      hash = "sha256-JNf3nN8jM0loKk28D2WpJl3lkjfCbyCsZ+fyc3yc/v8=";
+      hash = "sha256-y+usN/wxjIUg8WYzh5eq3ZbX4zSPqOQjJ+RPw2zYKNU=";
     };
   };
 
