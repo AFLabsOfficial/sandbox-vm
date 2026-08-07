@@ -53,7 +53,9 @@ bash scripts/check.sh --arch aarch64   # instantiate only, tools need a native h
 ```
 
 After merging, tag the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`)
-to run the builds, then play `publish-images` to serve them.
+to run the builds. `publish-images` then runs on its own and serves them, but only
+once all four builds have succeeded — one failed build fails the stage and nothing
+is published.
 
 The `prepare-release-mr` job needs a `RELEASE_TOKEN` CI variable: a project
 access token with the developer role and the `write_repository` scope, masked.
