@@ -1,4 +1,5 @@
 stages:
+  - release
   - build
   - publish
   - maintenance
@@ -32,6 +33,29 @@ variables:
   - echo "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
   - echo "$SSH_PRIVATE_KEY" > ~/.ssh/id_ed25519
   - chmod 600 ~/.ssh/id_ed25519
+
+# manual; run a web pipeline on the default branch to open the next release mr.
+# bumps the lockfile and every packaged tool, one commit each, bumps the patch
+# version in flake.nix and opens the merge request through git push options.
+#
+# needs RELEASE_TOKEN: a project access token with the developer role and the
+# write_repository scope, masked so git cannot leak it through the push url
+prepare-release-mr:
+  stage: release
+  image: *nix-image
+  tags:
+    - x86-kvm
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "web" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+      when: manual
+  variables:
+    # the release branch is pushed from this checkout, so the shallow default
+    # clone is not enough
+    GIT_DEPTH: 0
+  before_script:
+    - test -n "${RELEASE_TOKEN:-}" || { echo "RELEASE_TOKEN is not set"; exit 1; }
+  script:
+    - bash scripts/release-mr.sh
 
 .build-image:
   stage: build
