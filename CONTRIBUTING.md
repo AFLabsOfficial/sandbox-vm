@@ -57,6 +57,23 @@ to run the builds. `publish-images` then runs on its own and serves them, but on
 once all four builds have succeeded — one failed build fails the stage and nothing
 is published.
 
+### Image staging and retention
+
+Build jobs upload into `~/inc/<pipeline-id>/` on the deploy host, one directory per
+release attempt. `publish-images` refuses to serve unless that directory holds the
+full set — four images plus sidecars, every filename carrying the tag being
+published — and each `sha256` matches, then moves them into `~/http/iso` and removes
+the directory. A release that never finished is left where it is, so a later publish
+cannot pick it up.
+
+Retention, per variant and arch: the five newest versions, plus the newest patch of
+each of the five newest minor series, and within one version only the newest build.
+Staging directories from releases that never published are deleted by the nightly
+`inc-prune` job once they are older than `INC_RETENTION_DAYS` (default 7).
+
+Both host-side scripts take `--dry-run`, which reports every move and deletion
+without touching anything.
+
 The `prepare-release-mr` job needs a `RELEASE_TOKEN` CI variable: a project
 access token with the developer role and the `write_repository` scope, masked.
 
