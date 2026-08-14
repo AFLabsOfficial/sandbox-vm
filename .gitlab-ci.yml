@@ -27,9 +27,9 @@ variables:
 .release-only: &release-only
   - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
 
-# scp the built qcow2 + .sha256 to ~/inc/ on the deploy host; openssh isn't in
-# the nix image so it's pulled on demand
-.scp-images: &scp-images 'nix shell nixpkgs#openssh --command scp -P ${SSH_PORT:-22} dist/*.qcow2 dist/*.sha256 "$SSH_DEPLOY_HOST:~/inc/"'
+# upload the built qcow2 + .sha256 into this pipeline's own staging dir on the
+# deploy host, so an unfinished release cannot be published by a later one
+.scp-images: &scp-images 'bash scripts/upload-images.sh'
 
 .ssh-key-setup: &ssh-key-setup
   - mkdir -p ~/.ssh && chmod 700 ~/.ssh
@@ -136,20 +136,34 @@ build-gui-aarch64:
     - bash scripts/build.sh --gui --arch aarch64
     - *scp-images
 
-# manual; unlocks once every build job in the previous stage has succeeded.
+# runs once every build job has succeeded, so a partial release is never served
 # moves the uploaded images out of ~/inc into the served ~/http/iso
 publish-images:
   stage: publish
   image: *nix-image
   tags:
     - x86-kvm
+  rules: *release-only
+  before_script: *ssh-key-setup
+  script:
+    - scp -P ${SSH_PORT:-22} scripts/publish-images.sh "$SSH_DEPLOY_HOST:~/publish-images.sh"
+    - ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" "bash ~/publish-images.sh --id '$CI_PIPELINE_ID' --tag '$CI_COMMIT_TAG'"
+
+# scheduled daily; deletes staging dirs of releases that never published, which
+# nothing else collects. INC_RETENTION_DAYS keeps recent failures inspectable
+inc-prune:
+  stage: maintenance
+  image: *nix-image
+  tags:
+    - x86-kvm
   rules:
-    - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
+    - if: '$CI_PIPELINE_SOURCE == "schedule"'
+    - if: '$CI_PIPELINE_SOURCE == "web"'
       when: manual
   before_script: *ssh-key-setup
   script:
-    - nix shell nixpkgs#openssh --command scp -P ${SSH_PORT:-22} scripts/publish-images.sh "$SSH_DEPLOY_HOST:~/publish-images.sh"
-    - nix shell nixpkgs#openssh --command ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" 'bash ~/publish-images.sh'
+    - scp -P ${SSH_PORT:-22} scripts/prune-inc.sh "$SSH_DEPLOY_HOST:~/prune-inc.sh"
+    - ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" "bash ~/prune-inc.sh --days '${INC_RETENTION_DAYS:-7}'"
 
 # emptying the volume is the only safe way to reclaim the runner's persistent
 # nix cache: nothing in the ci store is gcrooted, so nix-collect-garbage also
