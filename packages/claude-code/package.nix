@@ -2,7 +2,7 @@
 
 let
   inherit (pkgs) stdenv lib;
-  version = "2.1.241";
+  version = "2.1.252";
 
   # upstream ships platform-native binaries as separate npm packages under
   # @anthropic-ai/claude-code-<platform>; the wrapper package is just a
@@ -10,19 +10,19 @@ let
   sources = {
     "x86_64-linux" = {
       slug = "linux-x64";
-      hash = "sha256-A9ZOedLpWiBJ92+RlaTVN6eDm4+ykbdIvj13ohjhUWw=";
+      hash = "sha256-efqQyf9KTZ9QbQ/qeAZyTDmTwYKU885olfC1IC0ZWyA=";
     };
     "aarch64-linux" = {
       slug = "linux-arm64";
-      hash = "sha256-aeO9mrNunkwTLZm7fQp2JlKoXVltxUPy9tRizPGLPsI=";
+      hash = "sha256-8G8mJuVBNSyByd1YDxQbVvdYidTmppht3edIwZq7H9k=";
     };
     "x86_64-darwin" = {
       slug = "darwin-x64";
-      hash = "sha256-MncikX1TQaTTlzRH+sF8NhFwCeFOmncpAPMM4aEWINE=";
+      hash = "sha256-msz41Zo0Vkl7dcOIhsSfVW570WrFzazMVZEc/TNGMrc=";
     };
     "aarch64-darwin" = {
       slug = "darwin-arm64";
-      hash = "sha256-ptpKqlEFYoHhP4E2GHX+LK0oMxRu3wlykTBSXOEDmBU=";
+      hash = "sha256-WqokbMT2ST6JhSMon6TC8uK7io8K7sGgmf2QbpG3t4E=";
     };
   };
 
