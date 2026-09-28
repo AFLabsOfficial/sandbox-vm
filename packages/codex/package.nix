@@ -2,7 +2,7 @@
 
 let
   inherit (pkgs) stdenv lib;
-  version = "0.155.1";
+  version = "0.158.0";
 
   # upstream ships platform-native binaries via versioned tags on the same
   # @openai/codex npm package (the @openai/codex-<slug> aliases all resolve
@@ -13,22 +13,22 @@ let
     "x86_64-linux" = {
       slug = "linux-x64";
       triple = "x86_64-unknown-linux-musl";
-      hash = "sha256-VqyXjg2Sy4guiV6zKzgvHFpQB8+LU8//vVk4XqZlKOI=";
+      hash = "sha256-DzxBSu+gcFusGu7asf73hgXnpJZnZe/N/zqS9LCLspw=";
     };
     "aarch64-linux" = {
       slug = "linux-arm64";
       triple = "aarch64-unknown-linux-musl";
-      hash = "sha256-0tKvk3vbYBoX8zYEIUZPsIAtpeVvGZUHSe50Dl0Wi9Y=";
+      hash = "sha256-eOV9pVWpdnXElKE1vK7wo0PIvolx1MVMXv5GjVAPdv0=";
     };
     "x86_64-darwin" = {
       slug = "darwin-x64";
       triple = "x86_64-apple-darwin";
-      hash = "sha256-U+E3QZ+rtpqoji786Efu0PCLTxlgYng5vBzMlunaohQ=";
+      hash = "sha256-Zwccf2HOVAi7/Cq6QJctD0Ob6AwPBO2ichrwn7ALqe0=";
     };
     "aarch64-darwin" = {
       slug = "darwin-arm64";
       triple = "aarch64-apple-darwin";
-      hash = "sha256-/76HvLgXRS3eBSvumIj0h2Ttcxmm7vmB2CZ3SQ7PObM=";
+      hash = "sha256-Io16w/699u87t/90tPlGFJNLijexsEfh28/oc5eRMOA=";
     };
   };
 
