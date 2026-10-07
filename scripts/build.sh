@@ -13,8 +13,7 @@ usage() {
 Usage: build.sh [options]
 
 Options:
-  --headless         Build headless variant
-  --gui              Build GUI variant
+  --headless         Build headless variant (default, the only variant)
   --arch <arch>      Target architecture (default: host)
   --docker           Build using Docker instead of nix (Linux only, requires KVM)
   -h, --help         Show usage
@@ -23,18 +22,13 @@ EOF
 }
 
 main() {
-	local arch="" variant="" docker=false
+	local arch="" docker=false
 
 	while [ $# -gt 0 ]; do
 		case "$1" in
-		--headless)
-			variant="headless"
-			shift
-			;;
-		--gui)
-			variant="gui"
-			shift
-			;;
+		# accepted for compatibility, headless is the only variant
+		--headless) shift ;;
+		--gui) die "the gui variant has been removed, use --headless" ;;
 		--arch)
 			arch="$2"
 			shift 2
@@ -48,10 +42,9 @@ main() {
 		esac
 	done
 
-	[ -n "$variant" ] || die "specify --headless or --gui"
 	arch=$(normalize_arch "$arch")
 
-	local package="packages.${arch}-linux.sandbox-${variant}"
+	local package="packages.${arch}-linux.sandbox-headless"
 
 	# preflight checks
 	if [ "$docker" = true ]; then
@@ -69,7 +62,7 @@ main() {
 	mkdir -p "$REPO_DIR/dist"
 
 	if [ "$docker" = true ]; then
-		info "building $variant $arch image via docker..."
+		info "building headless $arch image via docker..."
 		docker build -t sandbox-vm-builder "$REPO_DIR"
 
 		local uid gid
@@ -93,7 +86,7 @@ cp result/*.qcow2 /output/
 chown "${OUT_UID}:${OUT_GID}" /output/*.qcow2
 EOF
 	else
-		info "building $variant $arch image via nix..."
+		info "building headless $arch image via nix..."
 		nix build "$REPO_DIR#${package}"
 
 		local dir image
@@ -106,7 +99,7 @@ EOF
 
 	local output
 	# shellcheck disable=SC2012
-	output="$(ls -t "${REPO_DIR}/dist/sandbox-${variant}-${arch}-"*.qcow2 2>/dev/null | head -1)" || true
+	output="$(ls -t "${REPO_DIR}/dist/sandbox-headless-${arch}-"*.qcow2 2>/dev/null | head -1)" || true
 	[ -n "$output" ] || die "no image found in dist/"
 
 	# generate the sha256 sidecar that pull.sh verifies against. the line is

@@ -8,11 +8,6 @@
       url = "github:nix-community/home-manager";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    stylix = {
-      url = "github:nix-community/stylix";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
   outputs =
@@ -43,73 +38,53 @@
 
       mkSandbox =
         system:
-        {
-          gui ? false,
-        }:
         lib.nixosSystem {
           inherit system;
           modules = [
             { nixpkgs.config.allowUnfree = true; }
-            { vm-guest.headless = !gui; }
             ./nix.nix
             ./hosts/sandbox/configuration.nix
             ./modules/nixos/vm-guest.nix
             ./modules/nixos/vm-9p-automount.nix
             ./modules/nixos/localisation.nix
-            ./modules/nixos/desktop.nix
 
             inputs.home-manager.nixosModules.home-manager
             {
               home-manager.useGlobalPkgs = true;
               home-manager.useUserPackages = true;
               home-manager.backupFileExtension = "backup";
-              home-manager.extraSpecialArgs = { inherit gui; };
               home-manager.users.sandbox = import ./users/sandbox/home-manager.nix;
-            }
-          ]
-          ++ lib.optionals gui [
-            inputs.stylix.nixosModules.stylix
-            ./modules/nixos/theme.nix
-            {
-              desktop = {
-                enable = true;
-                autoLogin = "sandbox";
-              };
             }
           ];
           specialArgs = {
-            inherit inputs gui version;
+            inherit inputs version;
           };
         };
 
       # build a qcow2 image from a nixos configuration
       mkImage =
-        system: opts: variant:
+        system: format:
         let
-          base = mkSandbox system opts;
-          imageModule = base.config.image.modules.${variant};
+          base = mkSandbox system;
+          imageModule = base.config.image.modules.${format};
         in
         (base.extendModules { modules = [ imageModule ]; }).config.system.build.image;
     in
 
     {
       nixosConfigurations = {
-        sandbox = mkSandbox "x86_64-linux" { };
-        sandbox-aarch64 = mkSandbox "aarch64-linux" { };
-        sandbox-gui = mkSandbox "x86_64-linux" { gui = true; };
-        sandbox-gui-aarch64 = mkSandbox "aarch64-linux" { gui = true; };
+        sandbox = mkSandbox "x86_64-linux";
+        sandbox-aarch64 = mkSandbox "aarch64-linux";
       };
 
       packages = forAllSystems (
         system:
         packagesFor system
         // lib.optionalAttrs (system == "x86_64-linux") {
-          sandbox-headless = mkImage "x86_64-linux" { } "qemu";
-          sandbox-gui = mkImage "x86_64-linux" { gui = true; } "qemu";
+          sandbox-headless = mkImage "x86_64-linux" "qemu";
         }
         // lib.optionalAttrs (system == "aarch64-linux") {
-          sandbox-headless = mkImage "aarch64-linux" { } "qemu-efi";
-          sandbox-gui = mkImage "aarch64-linux" { gui = true; } "qemu-efi";
+          sandbox-headless = mkImage "aarch64-linux" "qemu-efi";
         }
       );
 

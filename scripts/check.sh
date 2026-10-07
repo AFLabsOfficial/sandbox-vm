@@ -9,19 +9,17 @@ source "$SCRIPT_DIR/lib.sh"
 setup_colors
 
 # verify a tagged build would get off the ground, without paying for a full
-# image build: instantiate both image derivations and build the packaged tools
+# image build: instantiate the image derivation and build the packaged tools
 #
-# NOTE:(@janezicmatej) `nix flake check` is deliberately not used. it cannot run
-# with --no-build here (stylix reads base16-schemes through import-from-
-# derivation, so evaluation itself needs a realised drv), it evaluates the darwin
-# outputs ci never builds, and doing every output in one process peaks well over
-# 3G and gets oom killed
+# NOTE:(@janezicmatej) `nix flake check` is deliberately not used. it evaluates
+# the darwin outputs ci never builds, and doing every output in one process
+# peaks well over 3G and gets oom killed
 
 usage() {
 	cat <<EOF
 Usage: check.sh [options]
 
-Instantiate the sandbox image derivations and build the packaged tools. Fails on
+Instantiate the sandbox image derivation and build the packaged tools. Fails on
 anything a bump can break at evaluation time: renamed nixpkgs options, nixos
 assertions, home-manager changes, bad source hashes.
 
@@ -52,14 +50,10 @@ main() {
 	cd "$REPO_DIR"
 
 	# instantiating an image forces system.build.toplevel, so the whole nixos
-	# and home-manager evaluation is covered here. one nix process per attribute:
-	# evaluating all of them in a single process needs upwards of 3G
-	local variant drv
-	for variant in headless gui; do
-		info "instantiating sandbox-$variant ($arch)"
-		drv=$(nix eval --raw ".#packages.${arch}-linux.sandbox-${variant}.drvPath")
-		echo "$drv"
-	done
+	# and home-manager evaluation is covered here
+	info "instantiating sandbox-headless ($arch)"
+	nix eval --raw ".#packages.${arch}-linux.sandbox-headless.drvPath"
+	echo
 
 	# the images embed these, but building them separately is what actually
 	# validates the hashes a bump commit wrote, plus the install and fixup phases

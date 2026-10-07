@@ -60,8 +60,8 @@ prepare-release-mr:
   script:
     - bash scripts/release-mr.sh
 
-# what the tag pipeline would fail on, minus the image build itself: both image
-# derivations are instantiated (which forces the whole nixos and home-manager
+# what the tag pipeline would fail on, minus the image build itself: the image
+# derivation is instantiated (which forces the whole nixos and home-manager
 # evaluation) and the packaged tools are built, so a bump that breaks evaluation
 # or carries a bad hash surfaces on the merge request instead of after tagging.
 # assembling the images is not reproduced here, so failures in that step are
@@ -109,15 +109,7 @@ build-headless-x86_64:
   tags:
     - x86-kvm
   script:
-    - bash scripts/build.sh --headless --arch x86_64
-    - *scp-images
-
-build-gui-x86_64:
-  extends: .build-image
-  tags:
-    - x86-kvm
-  script:
-    - bash scripts/build.sh --gui --arch x86_64
+    - bash scripts/build.sh --arch x86_64
     - *scp-images
 
 build-headless-aarch64:
@@ -125,15 +117,7 @@ build-headless-aarch64:
   tags:
     - arm-kvm
   script:
-    - bash scripts/build.sh --headless --arch aarch64
-    - *scp-images
-
-build-gui-aarch64:
-  extends: .build-image
-  tags:
-    - arm-kvm
-  script:
-    - bash scripts/build.sh --gui --arch aarch64
+    - bash scripts/build.sh --arch aarch64
     - *scp-images
 
 # runs once every build job has succeeded, so a partial release is never served

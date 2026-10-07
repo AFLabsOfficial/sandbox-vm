@@ -3,7 +3,6 @@
   lib,
   inputs,
   config,
-  gui,
   version,
   ...
 }:
@@ -20,6 +19,10 @@ let
   '';
 
   sandboxVmState = "${config.users.users.sandbox.home}/.local/state/sandbox-vm";
+
+  # only variant left, kept in image names and the release marker so published
+  # images, caches, and anything parsing SANDBOX_VM_VARIANT keep working
+  variant = "headless";
 
   # writable agent config via 9p, direct when host uids match, bindfs fallback
   # otherwise. the tag probe keeps the unit a no-op when the host did not share
@@ -126,7 +129,7 @@ in
   # is present, so on the host neither signal is set and the skill stays inert
   environment.etc."sandbox-vm-release".text = ''
     SANDBOX_VM_VERSION="${version}"
-    SANDBOX_VM_VARIANT="${if gui then "gui" else "headless"}"
+    SANDBOX_VM_VARIANT="${variant}"
     SANDBOX_VM_ARCH="${pkgs.stdenv.hostPlatform.parsed.cpu.name}"
   '';
 
@@ -185,7 +188,6 @@ in
       parts = lib.splitString "." config.system.nixos.version;
       date = builtins.elemAt parts 2;
       hash = builtins.elemAt parts 3;
-      variant = if gui then "gui" else "headless";
       name = "sandbox-${variant}-${arch}-${version}-${date}.${hash}";
 
       imageOverride =
