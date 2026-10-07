@@ -15,18 +15,18 @@ export UV_PROJECT_ENVIRONMENT=$SANDBOX_VM_STATE/<slug>/.venv
 uv sync --python "$(which python3.14)"
 ```
 
-`--python` is non-negotiable. If uv doesn't see a system Python it likes,
-it autodownloads CPython from python-build-standalone, and those binaries
-fail on NixOS with `stub-ld` (see the NixOS callout below). The error
-message recommends a fix that does not actually fix this — it points at
-`nix.dev/permalink/stub-ld`, which doesn't know about your nix-installed
-python. Skip the lookup and pass `--python "$(which python3.14)"`.
+`--python` keeps the interpreter choice deterministic. Without it, uv
+autodownloads CPython from python-build-standalone whenever it doesn't see
+a system Python it likes. Whether that download runs depends on the image
+(see the NixOS callout below): with `$NIX_LD` set it works, without it it
+fails with `stub-ld`.
 
 Tools that ship as prebuilt binaries inside a PyPI package — `ruff`, `ty`,
-some `polars` / `orjson` wheels — fail with the same `stub-ld` error when
-installed through pip / `uv pip`. Install them via `nix profile add
-nixpkgs#<tool>` instead and call the nix-installed binary; pip-installed
-tools that are pure Python (pytest, mypy, coverage) work fine.
+some `polars` / `orjson` wheels — follow the same rule: fine through pip /
+`uv pip` / `uv tool` when `$NIX_LD` is set, `stub-ld` errors otherwise. On
+an image without nix-ld, install them via `nix profile add nixpkgs#<tool>`
+and call the nix-installed binary. Pure-Python tools (pytest, mypy,
+coverage) work either way.
 
 ## Stacks redirectable by env var
 
@@ -62,12 +62,19 @@ flag that moves per-project state outside the project tree, point it at
 
 Tools that auto-download their own prebuilt runtime — `uv` pulling CPython
 from python-build-standalone, `mise`, `asdf`, `rustup` toolchains, anything
-fetching from generic-glibc release tarballs — fail on NixOS with `stub-ld`
-errors because the binaries are dynamically linked against paths that do
-not exist in the Nix store.
+fetching from generic-glibc release tarballs — are dynamically linked
+against an FHS loader path that does not exist on NixOS.
 
-The fix is to install the runtime via `nix profile add` and force the tool
-to use it. Don't rely on `$PATH` discovery alone — order-of-install
+Check `$NIX_LD` first. When it is set, the image runs nix-ld as that loader
+with a baseline set of common libraries (zlib, openssl, libstdc++, curl,
+systemd, …), and these prebuilts run unmodified. A prebuilt that needs a
+library outside that set fails with a normal `cannot open shared object
+file` error; fall back to the nixpkgs runtime for that tool.
+
+When `$NIX_LD` is unset (an older image), they fail with `stub-ld`. The
+error points at `nix.dev/permalink/stub-ld`, whose fixes don't apply here.
+Install the runtime via `nix profile add` instead and force the tool to use
+it. Don't rely on `$PATH` discovery alone — order-of-install
 matters (uv installed before the python is on `$PATH` will start
 downloading on first invocation), and `requires-python` mismatches send
 uv straight to the autodownload path. Pass `--python` explicitly so the
@@ -84,9 +91,9 @@ interpreters entirely.
 
 Same shape for `rustup` (`rustup toolchain link <name> $(dirname $(which rustc))`
 after `nix profile add nixpkgs#rustc`), `mise` (`mise use system`), and any
-other version manager that defaults to fetching its own binaries. Prefer
-nixpkgs runtimes over tool-bundled prebuilts; the autofetch path will not
-work here.
+other version manager that defaults to fetching its own binaries. Even
+with nix-ld, nixpkgs runtimes are the better default: they come from the
+binary cache and don't depend on the nix-ld library set.
 
 ### Rust linker
 

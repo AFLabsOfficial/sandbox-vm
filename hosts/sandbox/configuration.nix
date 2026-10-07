@@ -160,6 +160,10 @@ in
   };
   environment.defaultPackages = [ ];
 
+  # run unpatched prebuilt binaries (uv-managed pythons, npm/pip native
+  # wheels, vendored language servers) without patchelf or an fhs shell
+  programs.nix-ld.enable = true;
+
   virtualisation.docker = {
     enable = true;
     logDriver = "json-file";

@@ -124,6 +124,11 @@ nix shell nixpkgs#hyperfine -c hyperfine ...  # one-shot, no profile entry
 Profile installs vanish at shutdown. If the same toolchain is needed every
 boot, suggest the user bake it into `flake.nix` rather than reinstalling.
 
+Prebuilt generic-linux binaries (release tarballs, uv-downloaded CPython,
+binary wheels like `ruff`) run directly when `$NIX_LD` is set — the image
+ships nix-ld. Without it they fail with `stub-ld`; see
+[`references/language-stacks.md`](references/language-stacks.md).
+
 Nixpkgs attribute paths sometimes diverge from upstream names
 (`python3Packages.requests`, not `requests`); if `nixpkgs#foo` fails, run
 `nix search nixpkgs foo` to find the real attribute.
