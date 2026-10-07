@@ -34,7 +34,7 @@ usage() {
 Usage: pull.sh [options] <variant>
 
 Arguments:
-  variant              headless or gui
+  variant              headless (the only variant)
 
 Options:
   --arch <arch>        x86_64 or aarch64 (default: auto-detect host)
@@ -324,11 +324,7 @@ main() {
 		return 0
 	fi
 
-	[ -n "$variant" ] || die "variant is required (headless or gui)"
-	case "$variant" in
-	headless | gui) ;;
-	*) die "variant must be headless or gui, got: $variant" ;;
-	esac
+	[ "$variant" = headless ] || die "variant must be headless, got: '$variant'"
 
 	# reject anything that isn't strict semver before it hits a regex interpolation
 	if [ -n "$version" ]; then

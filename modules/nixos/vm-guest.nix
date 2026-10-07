@@ -9,18 +9,12 @@
   options = {
     vm-guest = {
       enable = lib.mkEnableOption "VM guest configuration";
-      headless = lib.mkOption {
-        type = lib.types.bool;
-        default = false;
-        description = "run without display, serial console only";
-      };
     };
   };
 
   config = lib.mkIf config.vm-guest.enable {
-    services.spice-vdagentd.enable = lib.mkIf (!config.vm-guest.headless) true;
-
-    boot.kernelParams = lib.mkIf config.vm-guest.headless [ "console=ttyS0,115200" ];
+    # no display, serial console only
+    boot.kernelParams = [ "console=ttyS0,115200" ];
 
     # 9p for host file mounting, autoloaded on first mount
     boot.initrd.availableKernelModules = [

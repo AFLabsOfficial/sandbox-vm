@@ -12,11 +12,7 @@ clean:
 
 # pull latest headless image and run (--no-pull to use cached)
 run-headless *ARGS:
-    bash scripts/run.sh --headless {{ARGS}}
-
-# pull latest GUI image and run (--no-pull to use cached)
-run-gui *ARGS:
-    bash scripts/run.sh --gui {{ARGS}}
+    bash scripts/run.sh {{ARGS}}
 
 # pull latest (or specific) VM image
 pull variant *ARGS:

@@ -4,16 +4,8 @@ A disposable virtual machine with Claude Code pre-installed. Run one command
 and start coding with AI — no setup, no mess, no risk to your host machine.
 Everything resets on shutdown.
 
-**Choose your style:**
-
-| | Headless | GUI _(experimental)_ |
-|---|---|---|
-| **Access** | Auto-connects via SSH | Full GNOME desktop in a window |
-| **Best for** | Terminal-comfortable developers | Visual workflows, less CLI experience |
-| **Login** | Automatic (any SSH key accepted) | Auto-login, no passwords |
-
-> **Note:** The GUI variant is **experimental** — limited work has gone into it
-> so far, so expect rough edges. Headless is the recommended way to run.
+The VM runs headless: `run.sh` boots it and auto-connects via SSH (any SSH key
+is accepted, no passwords).
 
 **What's included:** Claude Code, OpenAI Codex, Pi, git, docker, tmux, ripgrep, and more.
 Mount your projects from the host, authenticate once, and you're ready to go.
@@ -67,21 +59,11 @@ alias sandbox-vm="/path/to/sandbox-vm.nix/scripts/run.sh"
 Reload your shell (or `source` the rc file), then:
 
 ```sh
-# headless (auto-connects via ssh)
-sandbox-vm --headless --mount .
-
-# gui
-sandbox-vm --gui --mount .
+# auto-connects via ssh
+sandbox-vm --mount .
 ```
 
 The latest image is pulled automatically on first launch.
-
-If you always use the same variant, bake it into the alias:
-
-```sh
-alias sandbox-vm="/path/to/sandbox-vm.nix/scripts/run.sh --headless"
-# then: sandbox-vm --mount .
-```
 
 ### Alternative: `just` commands
 
@@ -90,12 +72,11 @@ kept for convenience but the alias above is preferred:
 
 ```sh
 just run-headless --mount /path/to/project
-just run-gui --mount /path/to/project
 ```
 
 ## SSH
 
-Headless mode automatically connects via SSH. To open additional sessions:
+`run.sh` automatically connects via SSH. To open additional sessions:
 
 ```sh
 just ssh                                # default port 22022
@@ -125,7 +106,7 @@ just ssh 22022 -L 8080:localhost:8080   # port forward
 Each `--mount` shares a host directory into the VM at `~/mnt/<dirname>`:
 
 ```sh
-just run-gui \
+just run-headless \
   --mount ~/projects/frontend \
   --mount ~/projects/backend
 ```
@@ -213,7 +194,7 @@ extra space costs nothing on the host until the guest actually writes to it.
 ## Images
 
 Images are hosted at [dl.aflabs.com/iso](https://dl.aflabs.com/iso/).
-`just run-headless` / `just run-gui` **auto-pull the latest image** on launch;
+`just run-headless` **auto-pulls the latest image** on launch;
 pass `--no-pull` to stay fully offline and use the latest cached image.
 
 For explicit control, use the `pull` and `list-images` commands:
@@ -234,17 +215,15 @@ cached image (still re-verified).
 To run a local image directly:
 
 ```sh
-just run-headless ./sandbox-headless-x86_64-v0.4.0.qcow2
-just run-gui ./sandbox-gui-x86_64-v0.4.0.qcow2 --mount ~/projects
+just run-headless ./sandbox-headless-x86_64-v0.4.0.qcow2 --mount ~/projects
 ```
 
 ## Building from source
 
 ```sh
-just build --headless                  # headless, host arch, requires nix
-just build --gui                       # gui variant
-just build --headless --arch aarch64   # cross-build
-just build --headless --docker         # via docker (Linux only, no nix required)
+just build                    # host arch, requires nix
+just build --arch aarch64     # cross-build
+just build --docker           # via docker (Linux only, no nix required)
 ```
 
 Built images are placed in `dist/`. The `--docker` path requires Linux with

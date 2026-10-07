@@ -46,12 +46,11 @@ usage() {
 	cat <<EOF
 Usage: run.sh [image.qcow2] [options]
 
-If no image is given, one is pulled automatically based on --gui/--headless.
+If no image is given, the latest headless image is pulled automatically.
 
 Options:
   --arch <arch>          Guest architecture (auto-detected from image name)
-  --gui                  Force graphical display
-  --headless             Force headless mode
+  --headless             No-op, kept for compatibility (headless is the only mode)
   --no-pull              Use latest cached image instead of downloading
   --mount <path>         Mount host directory into VM (repeatable)
   --no-claude            Skip mounting claude config dir
@@ -75,7 +74,7 @@ main() {
 
 	local ssh_port="" memory="$SANDBOX_DEFAULT_MEMORY" cpus="$SANDBOX_DEFAULT_CPUS"
 	local claude=true codex=true pi=true no_pull=false
-	local image="" guest_arch="" gui="" disk_size=""
+	local image="" guest_arch="" disk_size=""
 	local -a mounts=()
 
 	while [ $# -gt 0 ]; do
@@ -84,14 +83,9 @@ main() {
 			guest_arch="$2"
 			shift 2
 			;;
-		--gui)
-			gui=true
-			shift
-			;;
-		--headless)
-			gui=false
-			shift
-			;;
+		# accepted for compatibility, headless is the only mode
+		--headless) shift ;;
+		--gui) die "gui mode has been removed, use --headless" ;;
 		--no-pull)
 			no_pull=true
 			shift
@@ -143,29 +137,12 @@ main() {
 
 	# auto-pull if no image provided
 	if [ -z "$image" ]; then
-		local variant
-		case "$gui" in
-		true) variant="gui" ;;
-		false) variant="headless" ;;
-		"")
-			variant="headless"
-			gui=false
-			;;
-		esac
 		local -a pull_args=()
 		[ "$no_pull" = true ] && pull_args+=("--no-pull")
-		image=$(bash "$SCRIPT_DIR/pull.sh" "${pull_args[@]}" "$variant")
+		image=$(bash "$SCRIPT_DIR/pull.sh" "${pull_args[@]}" headless)
 	fi
 
 	[ -f "$image" ] || die "image not found: $image"
-
-	# auto-detect gui from image filename
-	if [ -z "$gui" ]; then
-		case "$(basename "$image")" in
-		*-gui-*) gui=true ;;
-		*) gui=false ;;
-		esac
-	fi
 
 	guest_arch=$(normalize_arch "$guest_arch")
 
@@ -209,18 +186,12 @@ main() {
 		drive_arg="if=none,id=hd0,file=$image,format=qcow2,snapshot=on,cache=writeback,aio=threads,discard=unmap,detect-zeroes=unmap"
 	fi
 
-	# auto-allocate ssh port for headless
-	if [ "$gui" != "true" ] && [ -z "$ssh_port" ]; then
+	# auto-allocate ssh port
+	if [ -z "$ssh_port" ]; then
 		ssh_port=$SANDBOX_DEFAULT_PORT
 		while port_in_use "$ssh_port"; do
 			ssh_port=$((ssh_port + 1))
 		done
-	fi
-
-	# build networking arg
-	local nic_arg="user,model=virtio-net-pci"
-	if [ -n "$ssh_port" ]; then
-		nic_arg="user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
 	fi
 
 	# build qemu command
@@ -232,24 +203,14 @@ main() {
 		-drive "$drive_arg"
 		-device "virtio-blk-pci,drive=hd0"
 		-device virtio-rng-pci
-		-nic "$nic_arg"
+		-nic "user,model=virtio-net-pci,hostfwd=tcp:127.0.0.1:${ssh_port}-:22"
+		-nographic
 	)
 
 	# -sandbox needs libseccomp; qemu's seccomp backend is linux-only, so
 	# skip it on macos (hvf) or anywhere qemu was built without the feature
 	if [ "$os" = "Linux" ]; then
 		qemu_args+=(-sandbox "on,obsolete=deny,elevateprivileges=deny,spawn=deny,resourcecontrol=deny")
-	fi
-
-	# display mode
-	if [ "$gui" = "true" ]; then
-		if [ "$guest_arch" = "aarch64" ]; then
-			qemu_args+=(-device virtio-gpu-pci -device usb-ehci -device usb-kbd -device usb-mouse)
-		else
-			qemu_args+=(-device virtio-vga)
-		fi
-	else
-		qemu_args+=(-nographic)
 	fi
 
 	# x86_64 with hardware accel — pass through host CPU features (AVX, etc.)
@@ -365,22 +326,14 @@ main() {
 	fi
 
 	info "---"
-	info "Guest: $guest_arch | Accel: $accel | Display: $([ "$gui" = "true" ] && echo "gui" || echo "headless")"
-	[ -n "$ssh_port" ] && info "SSH: ssh -p $ssh_port sandbox@localhost"
+	info "Guest: $guest_arch | Accel: $accel"
+	info "SSH: ssh -p $ssh_port sandbox@localhost"
 	info "---"
 
 	CLEANUP_TMPDIR=$(mktemp -d)
 	local qemu_log="$CLEANUP_TMPDIR/qemu.log"
 
-	if [ "$gui" = "true" ]; then
-		# run as child so the cleanup trap still fires on exit
-		"${qemu_args[@]}" &
-		QEMU_PID=$!
-		wait "$QEMU_PID"
-		return
-	fi
-
-	# headless: start qemu in background and auto-ssh
+	# start qemu in background and auto-ssh
 	"${qemu_args[@]}" &>"$qemu_log" &
 	QEMU_PID=$!
 
