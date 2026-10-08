@@ -61,30 +61,44 @@ prepare-release-mr:
     - bash scripts/release-mr.sh
 
 # what the tag pipeline would fail on, minus the image build itself: the image
-# derivation is instantiated (which forces the whole nixos and home-manager
-# evaluation) and the packaged tools are built, so a bump that breaks evaluation
-# or carries a bad hash surfaces on the merge request instead of after tagging.
-# assembling the images is not reproduced here, so failures in that step are
-# still only visible in the tag pipeline
+# is evaluated (which forces the whole nixos and home-manager evaluation) and
+# every package in it that cache.nixos.org cannot substitute is built, the
+# packaged tools included, so a bump that breaks evaluation, carries a bad hash
+# or pulls a package that no longer compiles surfaces on the merge request
+# instead of after tagging. assembling the images is not reproduced here, so
+# failures in that step are still only visible in the tag pipeline
 .check-flake:
   stage: check
   image: *nix-image
   rules:
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
 
+# the report lists the uncached packages the check built and which of them
+# failed, linked from the merge request widget. expose_as takes no variables in
+# its paths, so each job names its file literally
 check-x86_64:
   extends: .check-flake
   tags:
     - x86-kvm
   script:
-    - bash scripts/check.sh --arch x86_64
+    - bash scripts/check.sh --arch x86_64 --report check-x86_64.txt
+  artifacts:
+    when: always
+    expose_as: 'uncached packages x86_64'
+    paths:
+      - check-x86_64.txt
 
 check-aarch64:
   extends: .check-flake
   tags:
     - arm-kvm
   script:
-    - bash scripts/check.sh --arch aarch64
+    - bash scripts/check.sh --arch aarch64 --report check-aarch64.txt
+  artifacts:
+    when: always
+    expose_as: 'uncached packages aarch64'
+    paths:
+      - check-aarch64.txt
 
 .build-image:
   stage: build

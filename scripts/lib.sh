@@ -125,3 +125,84 @@ port_in_use() {
 		(echo >/dev/tcp/localhost/"$port") 2>/dev/null
 	fi
 }
+
+# print the derivations a `nix build --dry-run` plan (its stderr, saved to a
+# file) says will be built, one per line. the plan is human-readable nix
+# output; no nix command emits it as json (see NixOS/nix#3946), which is why
+# the pinned ci nix image matters here
+plan_builds() {
+	local line in_list=0
+	while IFS= read -r line; do
+		case "$line" in
+		"these "*" derivations will be built:" | "this derivation will be built:") in_list=1 ;;
+		"  /nix/store/"*.drv)
+			if [ "$in_list" = 1 ]; then
+				echo "${line#  }"
+			fi
+			;;
+		*) in_list=0 ;;
+		esac
+	done <"$1"
+}
+
+# from `nix derivation show` json, print the derivations that compile
+# something, as `<drv>^*` installables. those have a src, and are not the
+# trivial local-only kind nixos generates for config files, units and scripts,
+# which depend on most of the closure, so building them would mean downloading
+# the whole image, and none of them is where a bump breaks
+#
+# attributes live in .env, or in .structuredAttrs for derivations that use
+# __structuredAttrs, with "1"/"" strings in the former and booleans in the latter
+select_packages() {
+	# shellcheck disable=SC2016 # ${n} is nix interpolation, not bash
+	nix eval --impure --raw --expr '
+		let
+			j = builtins.fromJSON (builtins.readFile "'"$1"'");
+			drvs = j.derivations or j;
+			attrs = d: (d.env or { }) // (d.structuredAttrs or { });
+			isPackage = d:
+				let a = attrs d; in
+				(a ? src || a ? srcs)
+				&& !(builtins.elem (a.preferLocalBuild or false) [ true "1" ])
+				&& !(builtins.elem (a.allowSubstitutes or true) [ false "" ]);
+			abs = n: if builtins.substring 0 1 n == "/" then n else "/nix/store/${n}";
+		in
+		builtins.concatStringsSep ""
+			(map (n: "${abs n}^*\n") (builtins.filter (n: isPackage drvs.${n}) (builtins.attrNames drvs)))'
+}
+
+# /nix/store/<hash>-<name>-<version>.drv, with or without ^*, -> <name>-<version>
+package_name() {
+	local name="${1##*/}"
+	name="${name#*-}"
+	name="${name%^\*}"
+	echo "${name%.drv}"
+}
+
+# dry-run an installable and print the packages it would have to build, per
+# select_packages. dies with the nix output when evaluation fails. <tmp_dir>
+# keeps the plan and the derivation json for the caller
+uncached_packages() {
+	local installable="$1" tmp_dir="$2"
+	local drvs=()
+
+	if ! nix build --no-link --dry-run "$installable" 2>"$tmp_dir/plan"; then
+		cat "$tmp_dir/plan" >&2
+		die "evaluating $installable failed"
+	fi
+
+	# NOTE:(@janezicmatej) both nix commands fall back to the flake's default
+	# package when given no paths, which this flake does not have
+	mapfile -t drvs < <(plan_builds "$tmp_dir/plan")
+	[ ${#drvs[@]} -gt 0 ] || return 0
+
+	nix derivation show "${drvs[@]}" >"$tmp_dir/drvs.json"
+	select_packages "$tmp_dir/drvs.json"
+}
+
+# create TMP_DIR, removed on exit. a global rather than a local, so the exit
+# trap can still see it after the function that set it returned
+setup_tmp_dir() {
+	TMP_DIR=$(mktemp -d)
+	trap 'rm -rf "$TMP_DIR"' EXIT
+}

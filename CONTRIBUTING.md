@@ -40,16 +40,28 @@ to, because the CI workspace is reused between jobs and neither `git init`,
 earlier run created is still in the workspace even after it was deleted in the UI.
 
 The merge request pipeline runs `check-x86_64` and `check-aarch64`, which
-instantiate both image derivations for their architecture and build the packaged
-tools. Anything a bump can break at evaluation time (renamed nixpkgs options,
-NixOS assertions, home-manager changes, a bad source hash) fails there instead of
-after tagging. Assembling the images is not reproduced, so failures in that step
-still only show up in the tag pipeline.
+evaluate the image for their architecture and build every package in it that
+cache.nixos.org cannot substitute, the packaged tools included. Anything a bump
+can break before the image is assembled (renamed nixpkgs options, NixOS
+assertions, home-manager changes, a bad source hash, a nixpkgs package that no
+longer compiles and so was never cached) fails there instead of after tagging.
+
+The package selection comes from a `nix build --dry-run` of the image: of the
+derivations it would build, only those with a `src` that are neither
+`preferLocalBuild` nor `allowSubstitutes = false` are built. That skips the
+hundreds of generated config files, units and scripts, which build in
+milliseconds but depend on most of the closure and would pull the whole image
+down. The cost is that those are only built by
+the tag pipeline, as is the image assembly itself.
+
+Each check job links a short report from the merge request widget ("uncached
+packages x86_64" / "aarch64"): the packages it had to build and which of them
+failed, so a broken nixpkgs package is visible without reading the job log.
 
 ```sh
 # same check locally
 bash scripts/check.sh
-bash scripts/check.sh --arch aarch64   # instantiate only, tools need a native host
+bash scripts/check.sh --arch aarch64   # evaluate only, builds need a native host
 ```
 
 After merging, tag the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`)
