@@ -121,7 +121,8 @@ build-headless-aarch64:
     - *scp-images
 
 # runs once every build job has succeeded, so a partial release is never served
-# moves the uploaded images out of ~/inc into the served ~/http/iso
+# moves the uploaded images out of ~/inc into the served ~/http/iso. --expect
+# is the number of build-* jobs above, one image each; keep it in step with them
 publish-images:
   stage: publish
   image: *nix-image
@@ -131,7 +132,7 @@ publish-images:
   before_script: *ssh-key-setup
   script:
     - scp -P ${SSH_PORT:-22} scripts/publish-images.sh "$SSH_DEPLOY_HOST:~/publish-images.sh"
-    - ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" "bash ~/publish-images.sh --id '$CI_PIPELINE_ID' --tag '$CI_COMMIT_TAG'"
+    - ssh -p ${SSH_PORT:-22} "$SSH_DEPLOY_HOST" "bash ~/publish-images.sh --id '$CI_PIPELINE_ID' --tag '$CI_COMMIT_TAG' --expect 2"
 
 # scheduled daily; deletes staging dirs of releases that never published, which
 # nothing else collects. INC_RETENTION_DAYS keeps recent failures inspectable

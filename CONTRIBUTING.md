@@ -54,17 +54,17 @@ bash scripts/check.sh --arch aarch64   # instantiate only, tools need a native h
 
 After merging, tag the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`)
 to run the builds. `publish-images` then runs on its own and serves them, but only
-once all four builds have succeeded — one failed build fails the stage and nothing
+once both builds have succeeded — one failed build fails the stage and nothing
 is published.
 
 ### Image staging and retention
 
 Build jobs upload into `~/inc/<pipeline-id>/` on the deploy host, one directory per
 release attempt. `publish-images` refuses to serve unless that directory holds the
-full set — four images plus sidecars, every filename carrying the tag being
-published — and each `sha256` matches, then moves them into `~/http/iso` and removes
-the directory. A release that never finished is left where it is, so a later publish
-cannot pick it up.
+full set — one image per build job plus sidecars, every filename carrying the tag
+being published — and each `sha256` matches, then moves them into `~/http/iso` and
+removes the directory. A release that never finished is left where it is, so a
+later publish cannot pick it up.
 
 Retention, per variant and arch: the five newest versions, plus the newest patch of
 each of the five newest minor series, and within one version only the newest build.
