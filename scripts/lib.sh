@@ -200,9 +200,61 @@ uncached_packages() {
 	select_packages "$tmp_dir/drvs.json"
 }
 
+# the quoted value of the first `version = "...";` line in <file> matching the
+# extended regex <pattern>, without quotes
+version_binding() {
+	local line
+	line=$(grep -m1 -E "$2" "$1") || die "no version binding found in $1"
+	line="${line#*\"}"
+	echo "${line%%\"*}"
+}
+
+# the `version = "vX.Y.Z";` binding in flake.nix. reads <file> when given,
+# else flake.nix under REPO_DIR, which callers set
+flake_version() {
+	version_binding "${1:-$REPO_DIR/flake.nix}" '^[[:space:]]*version = "v[0-9]+\.[0-9]+\.[0-9]+";'
+}
+
+# items joined with ", "
+join_list() {
+	local joined
+	joined=$(printf '%s, ' "$@")
+	echo "${joined%, }"
+}
+
 # create TMP_DIR, removed on exit. a global rather than a local, so the exit
 # trap can still see it after the function that set it returned
 setup_tmp_dir() {
 	TMP_DIR=$(mktemp -d)
 	trap 'rm -rf "$TMP_DIR"' EXIT
+}
+
+# sha a remote ref points at, empty when the ref does not exist
+#
+# --exit-code makes ls-remote exit 2 when the ref is absent, so anything else is
+# a real failure and must not be mistaken for "not taken yet". call this in a
+# plain assignment, never inside $( ) in a test: die would only leave the subshell
+# and an unreachable remote would read as an absent ref
+remote_ref_sha() {
+	local out status=0
+	out=$(git ls-remote --exit-code "$1" "$2" 2>/dev/null) || status=$?
+	case "$status" in
+	0) printf '%s' "${out%%[[:space:]]*}" ;;
+	2) printf '' ;;
+	*) die "cannot reach the remote to check $2 (git exited $status)" ;;
+	esac
+}
+
+# WARN:(@janezicmatej) the token ends up in the url, which git prints back on
+# some errors; RELEASE_TOKEN must be a masked ci variable
+resolve_push_url() {
+	if [ -n "${RELEASE_PUSH_URL:-}" ]; then
+		echo "$RELEASE_PUSH_URL"
+	elif [ -n "${RELEASE_TOKEN:-}" ]; then
+		[ -n "${CI_SERVER_HOST:-}" ] && [ -n "${CI_PROJECT_PATH:-}" ] ||
+			die "RELEASE_TOKEN set outside ci: pass RELEASE_PUSH_URL instead"
+		echo "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
+	else
+		echo origin
+	fi
 }

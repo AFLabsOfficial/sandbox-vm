@@ -29,9 +29,25 @@ merged into `main` and then tagged, which is what triggers the image builds.
 
 Run the `prepare-release-mr` job to create it: start a manual (web) pipeline on
 `main` and play the job in the `release` stage. It bumps `flake.lock`, every
-`packages/*/update.sh`, and the patch version in `flake.nix`, then opens the
-merge request. The job fails if nothing changed, or if the version is already
-tagged.
+`packages/*/update.sh`, and the version in `flake.nix`, then opens the merge
+request. The job fails if nothing changed, or if the version is already tagged.
+The version gets a patch bump unless the pipeline sets `RELEASE_BUMP=minor` or
+`major`; that is a deliberate choice, not derived from commit types.
+
+Before committing the lockfile bump, the job dry-runs the image for both
+architectures against the new lock. If that would mean building a package
+cache.nixos.org does not have (other than the packaged tools, which every bump
+rebuilds), the new nixpkgs most likely has a package failing on Hydra, so the
+lockfile is left out of the release and the merge request description names the
+blockers. The tool bumps still go out. `nixos-unstable` only waits for Hydra's
+`tested` job, not for every package, which is how a broken contour reached it.
+Set `RELEASE_LOCK` on the pipeline to override: `force` always takes the new
+lock, `skip` never touches it, `auto` (the default) gates it.
+
+The merge request description says what the release changes: the nixpkgs
+revision range with a compare link, the gcc and kernel versions before and
+after, each tool's old and new version (flagged when it crosses a major
+version, a minor one under 0.x included), and any held-back lockfile bump.
 
 Re-running it for the same version is fine: a leftover `release/vX.Y.Z` branch
 only means an earlier attempt, so the job warns and force-pushes over it. It has

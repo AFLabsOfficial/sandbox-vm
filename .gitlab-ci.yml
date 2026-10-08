@@ -38,8 +38,11 @@ variables:
   - chmod 600 ~/.ssh/id_ed25519
 
 # manual; run a web pipeline on the default branch to open the next release mr.
-# bumps the lockfile and every packaged tool, one commit each, bumps the patch
-# version in flake.nix and opens the merge request through git push options.
+# bumps the lockfile and every packaged tool, one commit each, bumps the
+# version in flake.nix (patch unless RELEASE_BUMP=minor or major is set on the
+# pipeline) and opens the merge request through git push options. the lockfile
+# bump is held back when the new nixpkgs has uncached packages in the image;
+# set RELEASE_LOCK=force or skip on the pipeline to override
 #
 # needs RELEASE_TOKEN: a project access token with the developer role and the
 # write_repository scope, masked so git cannot leak it through the push url
