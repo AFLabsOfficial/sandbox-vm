@@ -11,6 +11,8 @@ workflow:
     - if: '$CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+$/'
     # merge requests, so a release mr is verified before it is merged and tagged
     - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    # pushes to the default branch, so a merged version bump gets tagged
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
     # nightly nix cache gc
     - if: '$CI_PIPELINE_SOURCE == "schedule"'
     # manual pipeline run, for the maintenance jobs
@@ -62,6 +64,33 @@ prepare-release-mr:
     - test -n "${RELEASE_TOKEN:-}" || { echo "RELEASE_TOKEN is not set"; exit 1; }
   script:
     - bash scripts/release-mr.sh
+
+# tags the version in flake.nix once it lands on the default branch, which
+# starts the tag pipeline that builds and publishes the images. the tag goes on
+# the commit that bumped the version, and nothing happens when that version is
+# already tagged (tagged by hand, or a merge that did not bump it). set
+# RELEASE_AUTO_TAG=false as a project variable to tag by hand instead
+#
+# needs RELEASE_TOKEN, because tags pushed with the job token do not start a
+# pipeline. if v* tags are protected, the token's role must be allowed to
+# create them
+tag-release:
+  stage: release
+  image: *nix-image
+  tags:
+    - x86-kvm
+  rules:
+    - if: '$RELEASE_AUTO_TAG == "false"'
+      when: never
+    - if: '$CI_PIPELINE_SOURCE == "push" && $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+  variables:
+    # the tag goes on the commit that bumped the version, which can be older
+    # than the pushed one when its own tag job failed
+    GIT_DEPTH: 0
+  before_script:
+    - test -n "${RELEASE_TOKEN:-}" || { echo "RELEASE_TOKEN is not set"; exit 1; }
+  script:
+    - bash scripts/tag-release.sh
 
 # what the tag pipeline would fail on, minus the image build itself: the image
 # is evaluated (which forces the whole nixos and home-manager evaluation) and

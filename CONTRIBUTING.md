@@ -80,10 +80,20 @@ bash scripts/check.sh
 bash scripts/check.sh --arch aarch64   # evaluate only, builds need a native host
 ```
 
-After merging, tag the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`)
-to run the builds. `publish-images` then runs on its own and serves them, but only
-once both builds have succeeded — one failed build fails the stage and nothing
-is published.
+Merging is the release. The push to `main` runs `tag-release`, which tags the
+commit that bumped the version in `flake.nix` (the merge commit, or the bump
+commit for a fast-forward) unless that version is already tagged, and the tag
+runs the builds. It works the same for a merge from the GitLab UI and a
+local `git merge` + push, and a merge that does not bump the version is left
+alone. Tagging by hand (`git tag vX.Y.Z && git push origin vX.Y.Z`) still works
+and the job then has nothing to do; set the project variable
+`RELEASE_AUTO_TAG=false` to only tag by hand. The job pushes the tag with
+`RELEASE_TOKEN`, because a tag pushed with the job token would not start a
+pipeline; if `v*` tags are protected, allow the token's role to create them.
+
+`publish-images` then runs on its own and serves the images, but only once both
+builds have succeeded — one failed build fails the stage and nothing is
+published.
 
 ### Image staging and retention
 
@@ -102,8 +112,15 @@ Staging directories from releases that never published are deleted by the nightl
 Both host-side scripts take `--dry-run`, which reports every move and deletion
 without touching anything.
 
-The `prepare-release-mr` job needs a `RELEASE_TOKEN` CI variable: a project
-access token with the developer role and the `write_repository` scope, masked.
+The `prepare-release-mr` and `tag-release` jobs need a `RELEASE_TOKEN` CI
+variable: a project access token with the developer role and the
+`write_repository` scope, masked. `tag-release` runs on every push to `main`,
+so the variable has to reach those pipelines: leave its environment scope at
+`*`, and mark it protected only if `main` is a protected branch, since protected
+variables are only passed to pipelines on protected refs. If `v*` tags are
+protected, the token's role must be allowed to create them. If a release
+merge did not get its tag (say its job failed), the next push to `main` tags
+it on the right commit, or rerun the job.
 
 ### Attribution
 

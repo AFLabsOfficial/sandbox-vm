@@ -356,7 +356,7 @@ main() {
 	# (topics/git/commit.md, push options) a literal \n in the description
 	# becomes one
 	local description note
-	description="release $next${CI_JOB_URL:+, prepared by $CI_JOB_URL}${GITLAB_USER_LOGIN:+ for @$GITLAB_USER_LOGIN}. tag $next on $target after merging to trigger the image builds."
+	description="release $next${CI_JOB_URL:+, prepared by $CI_JOB_URL}${GITLAB_USER_LOGIN:+ for @$GITLAB_USER_LOGIN}. once merged into the default branch, tag-release tags $next, which builds and publishes the images; with RELEASE_AUTO_TAG=false, tag it by hand."
 	for note in "${MR_NOTES[@]}"; do
 		description+='\n\n'"$note"
 	done
