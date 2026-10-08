@@ -29,9 +29,25 @@ merged into `main` and then tagged, which is what triggers the image builds.
 
 Run the `prepare-release-mr` job to create it: start a manual (web) pipeline on
 `main` and play the job in the `release` stage. It bumps `flake.lock`, every
-`packages/*/update.sh`, and the patch version in `flake.nix`, then opens the
-merge request. The job fails if nothing changed, or if the version is already
-tagged.
+`packages/*/update.sh`, and the version in `flake.nix`, then opens the merge
+request. The job fails if nothing changed, or if the version is already tagged.
+The version gets a patch bump unless the pipeline sets `RELEASE_BUMP=minor` or
+`major`; that is a deliberate choice, not derived from commit types.
+
+Before committing the lockfile bump, the job dry-runs the image for both
+architectures against the new lock. If that would mean building a package
+cache.nixos.org does not have (other than the packaged tools, which every bump
+rebuilds), the new nixpkgs most likely has a package failing on Hydra, so the
+lockfile is left out of the release and the merge request description names the
+blockers. The tool bumps still go out. `nixos-unstable` only waits for Hydra's
+`tested` job, not for every package, which is how a broken contour reached it.
+Set `RELEASE_LOCK` on the pipeline to override: `force` always takes the new
+lock, `skip` never touches it, `auto` (the default) gates it.
+
+The merge request description says what the release changes: the nixpkgs
+revision range with a compare link, the gcc and kernel versions before and
+after, each tool's old and new version (flagged when it crosses a major
+version, a minor one under 0.x included), and any held-back lockfile bump.
 
 Re-running it for the same version is fine: a leftover `release/vX.Y.Z` branch
 only means an earlier attempt, so the job warns and force-pushes over it. It has
@@ -40,31 +56,53 @@ to, because the CI workspace is reused between jobs and neither `git init`,
 earlier run created is still in the workspace even after it was deleted in the UI.
 
 The merge request pipeline runs `check-x86_64` and `check-aarch64`, which
-instantiate both image derivations for their architecture and build the packaged
-tools. Anything a bump can break at evaluation time (renamed nixpkgs options,
-NixOS assertions, home-manager changes, a bad source hash) fails there instead of
-after tagging. Assembling the images is not reproduced, so failures in that step
-still only show up in the tag pipeline.
+evaluate the image for their architecture and build every package in it that
+cache.nixos.org cannot substitute, the packaged tools included. Anything a bump
+can break before the image is assembled (renamed nixpkgs options, NixOS
+assertions, home-manager changes, a bad source hash, a nixpkgs package that no
+longer compiles and so was never cached) fails there instead of after tagging.
+
+The package selection comes from a `nix build --dry-run` of the image: of the
+derivations it would build, only those with a `src` that are neither
+`preferLocalBuild` nor `allowSubstitutes = false` are built. That skips the
+hundreds of generated config files, units and scripts, which build in
+milliseconds but depend on most of the closure and would pull the whole image
+down. The cost is that those are only built by
+the tag pipeline, as is the image assembly itself.
+
+Each check job links a short report from the merge request widget ("uncached
+packages x86_64" / "aarch64"): the packages it had to build and which of them
+failed, so a broken nixpkgs package is visible without reading the job log.
 
 ```sh
 # same check locally
 bash scripts/check.sh
-bash scripts/check.sh --arch aarch64   # instantiate only, tools need a native host
+bash scripts/check.sh --arch aarch64   # evaluate only, builds need a native host
 ```
 
-After merging, tag the merge commit (`git tag vX.Y.Z && git push origin vX.Y.Z`)
-to run the builds. `publish-images` then runs on its own and serves them, but only
-once all four builds have succeeded — one failed build fails the stage and nothing
-is published.
+Merging is the release. The push to `main` runs `tag-release`, which tags the
+commit that bumped the version in `flake.nix` (the merge commit, or the bump
+commit for a fast-forward) unless that version is already tagged, and the tag
+runs the builds. It works the same for a merge from the GitLab UI and a
+local `git merge` + push, and a merge that does not bump the version is left
+alone. Tagging by hand (`git tag vX.Y.Z && git push origin vX.Y.Z`) still works
+and the job then has nothing to do; set the project variable
+`RELEASE_AUTO_TAG=false` to only tag by hand. The job pushes the tag with
+`RELEASE_TOKEN`, because a tag pushed with the job token would not start a
+pipeline; if `v*` tags are protected, allow the token's role to create them.
+
+`publish-images` then runs on its own and serves the images, but only once both
+builds have succeeded — one failed build fails the stage and nothing is
+published.
 
 ### Image staging and retention
 
 Build jobs upload into `~/inc/<pipeline-id>/` on the deploy host, one directory per
 release attempt. `publish-images` refuses to serve unless that directory holds the
-full set — four images plus sidecars, every filename carrying the tag being
-published — and each `sha256` matches, then moves them into `~/http/iso` and removes
-the directory. A release that never finished is left where it is, so a later publish
-cannot pick it up.
+full set — one image per build job plus sidecars, every filename carrying the tag
+being published — and each `sha256` matches, then moves them into `~/http/iso` and
+removes the directory. A release that never finished is left where it is, so a
+later publish cannot pick it up.
 
 Retention, per variant and arch: the five newest versions, plus the newest patch of
 each of the five newest minor series, and within one version only the newest build.
@@ -74,8 +112,15 @@ Staging directories from releases that never published are deleted by the nightl
 Both host-side scripts take `--dry-run`, which reports every move and deletion
 without touching anything.
 
-The `prepare-release-mr` job needs a `RELEASE_TOKEN` CI variable: a project
-access token with the developer role and the `write_repository` scope, masked.
+The `prepare-release-mr` and `tag-release` jobs need a `RELEASE_TOKEN` CI
+variable: a project access token with the developer role and the
+`write_repository` scope, masked. `tag-release` runs on every push to `main`,
+so the variable has to reach those pipelines: leave its environment scope at
+`*`, and mark it protected only if `main` is a protected branch, since protected
+variables are only passed to pipelines on protected refs. If `v*` tags are
+protected, the token's role must be allowed to create them. If a release
+merge did not get its tag (say its job failed), the next push to `main` tags
+it on the right commit, or rerun the job.
 
 ### Attribution
 

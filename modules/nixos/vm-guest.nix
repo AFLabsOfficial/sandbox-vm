@@ -41,29 +41,29 @@
 
     security.sudo.wheelNeedsPassword = false;
 
-    # terminfo for ghostty, kitty, alacritty, wezterm, foot, etc. so ssh clients
-    # forwarding their native TERM don't break ncurses apps
-    environment.enableAllTerminfo = true;
-
-    # FIX:(@janezicmatej) enableAllTerminfo pulls termite.terminfo; termite's
-    # vte-ng patch breaks against vte 0.84.0 (vte::to_integral removed upstream).
-    # nixpkgs PR #522784 removed termite on 2026-05-23 but nixos-unstable hasn't
-    # fast-forwarded past it. drop this stub once the channel catches up.
-    nixpkgs.overlays = [
-      (_: prev: {
-        termite = prev.runCommand "termite-stub" {
-          outputs = [
-            "out"
-            "terminfo"
-          ];
-        } "mkdir -p $out $terminfo";
-      })
-    ];
-
     environment.systemPackages = with pkgs; [
       curl
       wget
       htop
+
+      # terminfo so ssh clients forwarding their native TERM don't break
+      # ncurses apps. ncurses already covers most clients: xterm-256color
+      # (terminal.app, iterm2, vs code, windows terminal, gnome terminal,
+      # konsole, jetbrains), putty, mintty, alacritty, foot, wezterm, st,
+      # tmux, screen and contour. these are the entries
+      # environment.enableAllTerminfo installed that it lacks
+      #
+      # NOTE:(@janezicmatej) not environment.enableAllTerminfo: it installs the
+      # terminfo output of every terminal in nixpkgs, which means building the
+      # whole terminal whenever hydra failed to, and that broke the image twice
+      # (termite with vte 0.84, contour with gcc 16). when one of these breaks
+      # the same way, the lockfile gate in release-mr.sh names it
+      ghostty.terminfo # xterm-ghostty
+      kitty.terminfo # xterm-kitty
+      rxvt-unicode-unwrapped.terminfo # rxvt-unicode, rxvt-unicode-256color
+      rio.terminfo # xterm-rio
+      mtm.terminfo # mtm, mtm-256color
+      yaft.terminfo # yaft-256color
     ];
   };
 }

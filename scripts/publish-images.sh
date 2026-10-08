@@ -24,7 +24,8 @@ ISO_DIR="${HOME}/http/iso"
 KEEP_RECENT=5
 KEEP_MINORS=5
 
-EXPECT=4
+# one image per build job in .gitlab-ci.yml, which passes --expect explicitly
+EXPECT=2
 DRY_RUN=false
 ID=""
 TAG=""

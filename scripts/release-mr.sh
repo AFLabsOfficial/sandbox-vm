@@ -11,6 +11,15 @@ setup_colors
 # trailer appended to every release commit, filled in by setup_identity
 COMMIT_TRAILER=""
 
+# lines for the merge request description, added by bump_lockfile and bump_tools
+MR_NOTES=()
+
+# what held the lockfile bump back, empty when it was not; set by bump_lockfile
+HELD_BACK=""
+
+# blockers named in the merge request before the rest are left to the job log
+MAX_BLOCKERS=10
+
 # prepare a release branch and open a merge request for it, reproducing the
 # layout every release has:
 #
@@ -19,6 +28,10 @@ COMMIT_TRAILER=""
 #   chore: bump codex to v0.146.1
 #   chore: bump pi to v0.84.0
 #   chore: bump version in flake.nix
+#
+# the lockfile bump is held back when the new nixpkgs would make the image
+# build a package cache.nixos.org does not have: that almost always means hydra
+# failed to build it, and the tool bumps should not wait for nixpkgs to fix it
 #
 # NOTE:(@janezicmatej) only bash, git, grep, coreutils and nix are used; the
 # pinned ci nix image ships no sed, awk or jq. the per-package update.sh scripts
@@ -43,49 +56,110 @@ Environment:
   RELEASE_MR_TITLE      merge request title (default: the new version)
   RELEASE_BOT_NAME      commit author name (default: sandbox-vm release bot)
   RELEASE_BOT_EMAIL     commit author email (default: noreply@CI_SERVER_HOST)
+  RELEASE_LOCK          lockfile bump: auto holds it back when the new nixpkgs
+                        has uncached packages in the image, force always takes
+                        it, skip never does (default: auto)
+  RELEASE_BUMP          version bump: patch, minor or major (default: patch)
 EOF
 	exit "${1:-0}"
 }
 
-# the `version = "vX.Y.Z";` binding in flake.nix, without quotes
-flake_version() {
-	local line
-	line=$(grep -m1 -E '^[[:space:]]*version = "v[0-9]+\.[0-9]+\.[0-9]+";' "$REPO_DIR/flake.nix") ||
-		die "no version binding found in flake.nix"
-	line="${line#*\"}"
-	echo "${line%%\"*}"
-}
-
 # the `version = "X.Y.Z";` binding in a package.nix, without quotes
 package_version() {
-	local line
-	line=$(grep -m1 'version = ' "$REPO_DIR/packages/$1/package.nix") ||
-		die "no version binding found in packages/$1/package.nix"
-	line="${line#*\"}"
-	echo "${line%%\"*}"
+	version_binding "$REPO_DIR/packages/$1/package.nix" 'version = '
 }
 
-# vX.Y.Z -> vX.Y.(Z+1)
-next_patch() {
-	local v="${1#v}"
+# vX.Y.Z bumped by patch, minor or major: vX.Y.(Z+1), vX.(Y+1).0, v(X+1).0.0.
+# the bump is a human call, not derived from commit types: feat merges have
+# shipped as patch releases before
+next_version() {
+	local v="${1#v}" bump="$2"
 	local major="${v%%.*}" rest="${v#*.}"
 	local minor="${rest%%.*}" patch="${rest##*.}"
-	echo "v${major}.${minor}.$((patch + 1))"
+	case "$bump" in
+	patch) echo "v${major}.${minor}.$((patch + 1))" ;;
+	minor) echo "v${major}.$((minor + 1)).0" ;;
+	major) echo "v$((major + 1)).0.0" ;;
+	*) die "RELEASE_BUMP must be patch, minor or major, not '$bump'" ;;
+	esac
+}
+
+# the nixpkgs revision flake.lock pins
+lock_rev() {
+	nix eval --raw --impure --expr \
+		"(builtins.fromJSON (builtins.readFile \"$REPO_DIR/flake.lock\")).nodes.nixpkgs.locked.rev"
+}
+
+# compiler and kernel the image is built with; a lockfile bump that moves
+# either is the one most likely to break packages, gcc 16 broke contour
+toolchain() {
+	# shellcheck disable=SC2016 # ${...} is nix interpolation, not bash
+	nix eval --raw ".#nixosConfigurations.sandbox" --apply \
+		'c: "gcc ${c.pkgs.stdenv.cc.cc.version}, linux ${c.config.boot.kernelPackages.kernel.version}"'
+}
+
+# whether X.Y.Z -> X'.Y'.Z' crosses a major version, counting a minor bump
+# under 0.x as major the way semver does
+is_major_bump() {
+	local old="$1" new="$2"
+	local old_major="${old%%.*}" new_major="${new%%.*}"
+	local old_rest="${old#*.}" new_rest="${new#*.}"
+	[ "$old_major" != "$new_major" ] && return 0
+	[ "$old_major" = 0 ] && [ "${old_rest%%.*}" != "${new_rest%%.*}" ] && return 0
+	return 1
+}
+
+# the packages the image would have to build after a lockfile change, on both
+# arches, as `<name> (<arch>)` lines. the packaged tools are left out by their
+# exact derivation, every flake package but the image itself: every lockfile
+# bump changes them, so they are never cached, and the mr check builds them. an
+# arch the new lock no longer evaluates for is listed too. a dry-run is
+# system-agnostic, so the x86 job can judge aarch64 as well
+lock_blockers() {
+	local arch entry drv own_drvs
+	local -A own=()
+
+	for arch in x86_64 aarch64; do
+		mkdir -p "$TMP_DIR/$arch"
+		info "checking the new lockfile against the binary cache ($arch)"
+		# a nixpkgs the image no longer evaluates against blocks the bump the
+		# same way, so the tool bumps still go out. a separate bash -e process
+		# rather than a subshell under `if`, which would switch errexit off
+		# inside it and let a failed step pass as an empty selection
+		# shellcheck disable=SC2016 # expanded by the inner bash
+		if ! bash -euo pipefail -c 'source "$1"; setup_colors; uncached_packages "$2" "$3"' _ \
+			"$SCRIPT_DIR/lib.sh" ".#packages.${arch}-linux.sandbox-headless" "$TMP_DIR/$arch" \
+			>"$TMP_DIR/$arch/packages"; then
+			echo "evaluation failed ($arch), see the job log"
+			continue
+		fi
+
+		# a plain assignment, so a failed eval stops the script instead of
+		# leaving the tools in the list as blockers
+		own_drvs=$(nix eval --raw ".#packages.${arch}-linux" --apply \
+			'ps: builtins.concatStringsSep "\n" (map (p: p.drvPath) (builtins.attrValues (removeAttrs ps [ "sandbox-headless" ])))')
+		own=()
+		while IFS= read -r drv; do
+			own[$drv]=1
+		done <<<"$own_drvs"
+
+		while IFS= read -r entry; do
+			[ -n "${own[${entry%^\*}]:-}" ] || echo "$(package_name "$entry") ($arch)"
+		done <"$TMP_DIR/$arch/packages"
+	done
 }
 
 # rewrite the version binding in place, keeping the file's mode
 set_flake_version() {
-	local old="$1" new="$2" tmp
-	tmp=$(mktemp)
+	local old="$1" new="$2" tmp="$TMP_DIR/flake.nix"
 	while IFS= read -r line; do
 		printf '%s\n' "${line//version = \"$old\";/version = \"$new\";}"
 	done <"$REPO_DIR/flake.nix" >"$tmp"
 	cat "$tmp" >"$REPO_DIR/flake.nix"
-	rm -f "$tmp"
 }
 
 # commit the given paths if any of them changed; returns 1 when there was
-# nothing to commit so callers can count real bumps.
+# nothing to commit
 #
 # --no-gpg-sign because these are machine commits: signing them with whatever
 # key the runner or a local clone happens to have would attribute them to a
@@ -119,33 +193,81 @@ setup_identity() {
 	info "committing as $GIT_AUTHOR_NAME <$GIT_AUTHOR_EMAIL>${COMMIT_TRAILER:+ (${COMMIT_TRAILER})}"
 }
 
-# sha a remote ref points at, empty when the ref does not exist.
-#
-# --exit-code makes ls-remote exit 2 when the ref is absent, so anything else is
-# a real failure and must not be mistaken for "not taken yet". call this in a
-# plain assignment, never inside $( ) in a test: die would only leave the subshell
-# and an unreachable remote would read as an absent ref
-remote_ref_sha() {
-	local out status=0
-	out=$(git ls-remote --exit-code "$1" "$2" 2>/dev/null) || status=$?
-	case "$status" in
-	0) printf '%s' "${out%%[[:space:]]*}" ;;
-	2) printf '' ;;
-	*) die "cannot reach the remote to check $2 (git exited $status)" ;;
-	esac
+# update flake.lock and commit it, unless <mode> is skip, or auto finds the new
+# nixpkgs blocked; notes the nixpkgs range and toolchain change it brings
+bump_lockfile() {
+	local mode="$1"
+
+	if [ "$mode" = skip ]; then
+		info "leaving the lockfile alone (RELEASE_LOCK=skip)"
+		MR_NOTES+=("lockfile not bumped: RELEASE_LOCK=skip")
+		return 0
+	fi
+
+	local old_rev old_toolchain
+	old_rev=$(lock_rev)
+	old_toolchain=$(toolchain) || old_toolchain="unknown, the lock does not evaluate"
+
+	nix flake update
+
+	if [ "$mode" = auto ] && ! git diff --quiet -- flake.lock; then
+		# written to a file rather than read from a process substitution, so
+		# set -e still applies inside lock_blockers
+		local blockers=()
+		lock_blockers >"$TMP_DIR/blockers"
+		mapfile -t blockers <"$TMP_DIR/blockers"
+		if [ ${#blockers[@]} -gt 0 ]; then
+			warn "holding back the lockfile bump, the new nixpkgs is blocked by:"
+			printf '  %s\n' "${blockers[@]}" >&2
+			git checkout -q -- flake.lock
+			# a long list means the cache was unreachable or a whole arch lags
+			# rather than a few packages failing on hydra; the push option
+			# carrying it is not the place for all of them
+			HELD_BACK=$(join_list "${blockers[@]:0:$MAX_BLOCKERS}")
+			[ ${#blockers[@]} -le "$MAX_BLOCKERS" ] ||
+				HELD_BACK+=" and $((${#blockers[@]} - MAX_BLOCKERS)) more, see the job log"
+			MR_NOTES+=("lockfile bump held back, the new nixpkgs fails to evaluate or would build packages cache.nixos.org does not have (most likely failing on hydra): $HELD_BACK. rerun with RELEASE_LOCK=force to take it anyway")
+		fi
+	fi
+
+	commit_if_changed "chore: bump lockfile" flake.lock || return 0
+
+	local new_rev new_toolchain
+	new_rev=$(lock_rev)
+	# RELEASE_LOCK=force can commit a lock the image no longer evaluates
+	# against; the release still goes out and the mr check shows why
+	new_toolchain=$(toolchain) || new_toolchain="unknown, the new lock does not evaluate"
+	# the lock can change without nixpkgs moving, when only home-manager did
+	if [ "$old_rev" = "$new_rev" ]; then
+		MR_NOTES+=("lockfile: nixpkgs unchanged at ${new_rev:0:12}, other inputs updated")
+	else
+		MR_NOTES+=("nixpkgs: ${old_rev:0:12} -> ${new_rev:0:12}, https://github.com/NixOS/nixpkgs/compare/${old_rev}...${new_rev}")
+	fi
+	if [ "$old_toolchain" = "$new_toolchain" ]; then
+		MR_NOTES+=("toolchain: $new_toolchain (unchanged)")
+	else
+		MR_NOTES+=("toolchain: $old_toolchain -> $new_toolchain")
+	fi
 }
 
-# WARN:(@janezicmatej) the token ends up in the url, which git prints back on
-# some errors; RELEASE_TOKEN must be a masked ci variable
-resolve_push_url() {
-	if [ -n "${RELEASE_PUSH_URL:-}" ]; then
-		echo "$RELEASE_PUSH_URL"
-	elif [ -n "${RELEASE_TOKEN:-}" ]; then
-		[ -n "${CI_SERVER_HOST:-}" ] && [ -n "${CI_PROJECT_PATH:-}" ] ||
-			die "RELEASE_TOKEN set outside ci: pass RELEASE_PUSH_URL instead"
-		echo "https://oauth2:${RELEASE_TOKEN}@${CI_SERVER_HOST}/${CI_PROJECT_PATH}.git"
-	else
-		echo origin
+# run every packages/*/update.sh and commit each tool that moved, noting old
+# and new versions. alphabetical, so the branch history is the same no matter
+# where it runs
+bump_tools() {
+	local updater name old new major changes=()
+	for updater in packages/*/update.sh; do
+		name=$(basename "$(dirname "$updater")")
+		[ -x "$updater" ] || die "$updater is not executable"
+		old=$(package_version "$name")
+		"$updater"
+		new=$(package_version "$name")
+		commit_if_changed "chore: bump $name to v$new" "packages/$name" || continue
+		major=""
+		is_major_bump "$old" "$new" && major=" (major)"
+		changes+=("$name $old -> $new$major")
+	done
+	if [ ${#changes[@]} -gt 0 ]; then
+		MR_NOTES+=("tools: $(join_list "${changes[@]}")")
 	fi
 }
 
@@ -170,9 +292,17 @@ main() {
 
 	[ -z "$(git status --porcelain)" ] || die "working tree is dirty, commit or stash first"
 
+	local lock_mode="${RELEASE_LOCK:-auto}"
+	case "$lock_mode" in
+	auto | force | skip) ;;
+	*) die "RELEASE_LOCK must be auto, force or skip, not '$lock_mode'" ;;
+	esac
+
+	setup_tmp_dir
+
 	local current next branch target start_ref push_url
 	current=$(flake_version)
-	next=$(next_patch "$current")
+	next=$(next_version "$current" "${RELEASE_BUMP:-patch}")
 	branch="release/$next"
 	target="${RELEASE_TARGET_BRANCH:-${CI_DEFAULT_BRANCH:-main}}"
 	start_ref=$(git symbolic-ref -q --short HEAD || git rev-parse HEAD)
@@ -207,33 +337,34 @@ main() {
 	info "preparing $next (current: $current) on $branch"
 	git checkout -q -B "$branch"
 
-	local bumps=0
+	bump_lockfile "$lock_mode"
+	bump_tools
 
-	nix flake update
-	commit_if_changed "chore: bump lockfile" flake.lock && bumps=$((bumps + 1))
-
-	# alphabetical, so the branch history is the same no matter where it runs
-	local updater name
-	for updater in packages/*/update.sh; do
-		name=$(basename "$(dirname "$updater")")
-		[ -x "$updater" ] || die "$updater is not executable"
-		"$updater"
-		commit_if_changed "chore: bump $name to v$(package_version "$name")" "packages/$name" &&
-			bumps=$((bumps + 1))
-	done
-
-	if [ "$bumps" -eq 0 ]; then
+	if [ "$(git rev-list --count "$start_ref..HEAD")" -eq 0 ]; then
 		git checkout -q "$start_ref"
 		git branch -q -D "$branch"
-		die "nothing to release: lockfile and all packaged tools are already current"
+		[ -z "$HELD_BACK" ] ||
+			die "nothing to release: the lockfile bump is held back ($HELD_BACK) and all packaged tools are already current; rerun with RELEASE_LOCK=force to release the new lock anyway"
+		die "nothing to release: no lockfile bump and all packaged tools are already current"
 	fi
 
 	set_flake_version "$current" "$next"
 	commit_if_changed "chore: bump version in flake.nix" flake.nix ||
 		die "flake.nix version bump changed nothing, expected $current"
 
+	# push option values cannot hold a newline; per gitlab docs
+	# (topics/git/commit.md, push options) a literal \n in the description
+	# becomes one
+	local description note
+	description="release $next${CI_JOB_URL:+, prepared by $CI_JOB_URL}${GITLAB_USER_LOGIN:+ for @$GITLAB_USER_LOGIN}. once merged into the default branch, tag-release tags $next, which builds and publishes the images; with RELEASE_AUTO_TAG=false, tag it by hand."
+	for note in "${MR_NOTES[@]}"; do
+		description+='\n\n'"$note"
+	done
+
 	if [ "$dry_run" = true ]; then
-		info "dry run: $branch prepared locally with $((bumps + 1)) commits, not pushed"
+		info "dry run: $branch prepared locally with $(git rev-list --count "$start_ref..HEAD") commits, not pushed"
+		info "merge request description:"
+		printf '%b\n' "$description" >&2
 		return 0
 	fi
 
@@ -242,7 +373,7 @@ main() {
 		-o merge_request.create
 		-o merge_request.target="$target"
 		-o merge_request.title="${RELEASE_MR_TITLE:-$next}"
-		-o merge_request.description="release $next${CI_JOB_URL:+, prepared by $CI_JOB_URL}${GITLAB_USER_LOGIN:+ for @$GITLAB_USER_LOGIN}. tag $next on $target after merging to trigger the image builds."
+		-o merge_request.description="$description"
 		-o merge_request.remove_source_branch
 	)
 

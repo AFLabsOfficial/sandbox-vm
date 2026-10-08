@@ -5,3 +5,6 @@ dist/
 
 # Ignore automatically generated direnv output
 .direnv
+
+# check.sh --report output, see .gitlab-ci.yml
+check-*.txt
